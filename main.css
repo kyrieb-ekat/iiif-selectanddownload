@@ -1,0 +1,98 @@
+html, body {
+	height: 100%;
+	margin: 0;
+  }
+  
+  body {
+	font-family: "Helvetica Neue", Arial, sans-serif;
+	background-color: #a9a9aa; /* Grey background for the left and right columns */
+	padding: 0;
+  }
+  
+  /*left sidebar */
+  #sidebar {
+	position: fixed;
+	top: 0;
+	left: 0;
+	height: 100%;
+	width: 200px; /* Sidebar width */
+	background-color: #444; /* Darker grey for the sidebar */
+	padding-top: 70px;
+  }
+  
+  #sidebar ul {
+	list-style-type: none;
+	padding: 0;
+  }
+  
+  #sidebar ul li {
+	margin: 20px 0;
+  }
+  
+  #sidebar ul li a {
+	text-decoration: none;
+	color: white;
+	font-size: 18px;
+	padding: 10px 20px;
+	display: block;
+  }
+  
+  #sidebar ul li a:hover {
+	background-color: #666; /* Lighter grey on hover */
+	border-radius: 4px;
+  }
+  
+  #container {
+	margin-left: 220px; /* Adjust for the sidebar width */
+	width: 60%; /* Central column width */
+	background-color: white;
+	padding: 20px;
+	min-height: 100vh; /* Ensures the container fills the full height of the page */
+	box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Optional shadow effect */
+  }
+  
+  h1, p {
+	text-align: center;
+  }
+  
+  /* Footer styles */
+  #footer {
+	background-color: #f1f1f1;
+	text-align: center;
+	padding: 10px 0;
+	width: 100%;
+	font-size: 14px;
+	position: fixed;
+	left: 0;
+	bottom: 0;
+  }
+  
+  /* Right Sidebar styling */
+#right-sidebar {
+	position: fixed;
+	top: 0;
+	right: 0;
+	height: 100%;
+	width: 200px; /* Width of the right sidebar */
+	background-color: #444; /* Darker grey for the right sidebar */
+	padding-top: 70px;
+	color: white; /* Text color for visibility */
+  }
+  
+  #right-sidebar h2 {
+	text-align: center;
+  }
+  
+  #right-sidebar p {
+	padding: 10px 15px; /* Padding for the paragraphs */
+  }
+  
+  /* Adjust the main content container */
+  #container {
+	margin-left: 220px; /* Adjust for the left sidebar width */
+	margin-right: 220px; /* Make space for the right sidebar */
+	width: auto; /* Allow the container to adjust automatically */
+	background-color: white;
+	padding: 20px;
+	min-height: 100vh; /* Ensure full page height */
+  }
