@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IIIF Manifest Viewer</title>
+    <link rel="stylesheet" href="main.css">
+</head>
+
+<body>
+    <!-- Left Sidebar -->
+    <div id="sidebar">
+        <ul>
+            <li><a href="../index.html">Home</a></li>
+            <!-- <li><a href="#instructions">Instructions</a></li>
+            <li><a href="#manifest">Enter Manifest</a></li> -->
+        </ul>
+    </div>
+
+    <!-- Main Content -->
+    <div id="container">
+        <h1>IIIF Manifest View, Select, and Downloader</h1>
+        <p>Enter the manifest URL below to load images and metadata.</p>
+        <p>Just want to give it a shot? Try this one: https://fragmentarium.ms/metadata/iiif/F-ab64/manifest.json</p>
+        <div id="manifest">
+            <input type="text" id="url" placeholder="Enter manifest URL" style="width: 80%;">
+            <button id="loadManifest">Load Manifest</button>
+        </div>
+        <div id="actions">
+            <button id="selectAll">Select/Deselect All</button>
+            <button id="downloadSelected">Download Selected</button>
+        </div>
+        <div id="img-container"></div>
+        <div id="progress_bar" class="hide">
+            <div class="progress-bar" style="width: 0%;">0%</div>
+        </div>
+        <p id="result"></p>
+    </div>
+
+    <!-- Right Sidebar -->
+    <div id="right-sidebar">
+        <h2>About</h2>
+        <p>This tool allows users to view, select, and download images from a IIIF manifest. It’s designed to simplify image handling for researchers and students.</p>
+        <p>Very much of this is inspired by Liz Fischer's wonderful IIIF tools, whose base code makes up the download portion of this capability.</p>
+        <h3>Contact</h3>
+        <p>If you encounter issues, please open an issue on the GitHub page:</p>
+        <p><a href="https://github.com/kyrieb-ekat?tab=repositories" style="color: white;">View Select and Download IIIF</a></p>
+    </div>
+
+    <!-- Footer -->
+    <div id="footer">
+        © 2025 Kyrie Bouressa | IIIF Manifest Viewer
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip-utils/dist/jszip-utils.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/he/he.js"></script>
+    <script src="main.js"></script>
+</body>
+
+</html>
