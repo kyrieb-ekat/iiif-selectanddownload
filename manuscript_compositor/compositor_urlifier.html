@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal Upload Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        
+        .upload-area {
+            border: 3px dashed #007cba;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background: #f0f8ff;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area:hover {
+            border-color: #005a87;
+            background: #e6f3ff;
+        }
+        
+        .upload-area.dragover {
+            border-color: #ff6b35;
+            background: #fff0e6;
+            transform: scale(1.02);
+        }
+        
+        #fileInput {
+            display: none;
+        }
+        
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            background: #f5f5f5;
+            min-height: 100px;
+            font-family: monospace;
+            font-size: 12px;
+            overflow-y: auto;
+        }
+        
+        .status-line {
+            margin: 2px 0;
+            padding: 2px 5px;
+        }
+        
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Minimal Upload Test</h1>
+    <p>This is a stripped-down test to see if basic file upload works in your browser.</p>
+    
+    <div class="upload-area" id="uploadArea">
+        <input type="file" id="fileInput" accept="*">
+        <h3>📁 Click here or drag a file</h3>
+        <p>Any file type accepted</p>
+    </div>
+    
+    <div id="status">
+        <div class="status-line info">Waiting for JavaScript to load...</div>
+    </div>
+
+    <script>
+        // Test 1: Basic console log
+        console.log('🟢 JavaScript is running!');
+        
+        // Test 2: Add status message
+        function addStatus(message, type = 'info') {
+            console.log('Status:', message);
+            const status = document.getElementById('status');
+            const line = document.createElement('div');
+            line.className = `status-line ${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            status.appendChild(line);
+            status.scrollTop = status.scrollHeight;
+        }
+        
+        // Test 3: DOM ready check
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+            addStatus('DOM still loading, waiting...', 'info');
+        } else {
+            init();
+        }
+        
+        function init() {
+            console.log('🟢 DOM ready, initializing...');
+            addStatus('DOM ready, initializing...', 'success');
+            
+            // Test 4: Get elements
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            
+            if (!uploadArea || !fileInput) {
+                console.error('❌ Elements not found!');
+                addStatus('CRITICAL ERROR: Elements not found!', 'error');
+                return;
+            }
+            
+            addStatus('Elements found successfully', 'success');
+            
+            // Test 5: Click handler
+            uploadArea.addEventListener('click', function() {
+                console.log('🟢 Upload area clicked');
+                addStatus('Upload area clicked - opening file dialog', 'info');
+                fileInput.click();
+            });
+            
+            // Test 6: File input change
+            fileInput.addEventListener('change', function(e) {
+                console.log('🟢 File selected:', e.target.files);
+                if (e.target.files.length > 0) {
+                    const file = e.target.files[0];
+                    addStatus(`File selected: ${file.name} (${file.size} bytes)`, 'success');
+                    processFile(file);
+                } else {
+                    addStatus('No file selected', 'error');
+                }
+            });
+            
+            // Test 7: Drag and drop
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🟢 Drag event:', eventName);
+                });
+            });
+            
+            uploadArea.addEventListener('dragenter', function() {
+                this.classList.add('dragover');
+                addStatus('File dragged over upload area', 'info');
+            });
+            
+            uploadArea.addEventListener('dragleave', function() {
+                this.classList.remove('dragover');
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                this.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                console.log('🟢 Files dropped:', files);
+                addStatus(`Files dropped: ${files.length} file(s)`, 'success');
+                
+                if (files.length > 0) {
+                    processFile(files[0]);
+                }
+            });
+            
+            addStatus('All event handlers attached successfully', 'success');
+            addStatus('🚀 Ready! Try clicking or dragging a file.', 'info');
+        }
+        
+        function processFile(file) {
+            console.log('🟢 Processing file:', file);
+            addStatus(`Processing: ${file.name}`, 'info');
+            addStatus(`File type: ${file.type}`, 'info');
+            addStatus(`File size: ${file.size} bytes`, 'info');
+            
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const content = e.target.result;
+                addStatus(`File read successfully (${content.length} characters)`, 'success');
+                
+                // Try to parse as JSON if it looks like JSON
+                if (file.name.toLowerCase().includes('.json') || content.trim().startsWith('{')) {
+                    try {
+                        const json = JSON.parse(content);
+                        addStatus('✅ Valid JSON file!', 'success');
+                        addStatus(`JSON keys: ${Object.keys(json).slice(0, 5).join(', ')}...`, 'info');
+                        
+                        // Check for IIIF-like structure
+                        if (json['@context'] || json.type || json['@type']) {
+                            addStatus('🏛️ Looks like a IIIF manifest!', 'success');
+                        }
+                    } catch (error) {
+                        addStatus(`JSON parse error: ${error.message}`, 'error');
+                    }
+                }
+            };
+            
+            reader.onerror = function() {
+                addStatus('Error reading file', 'error');
+            };
+            
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
