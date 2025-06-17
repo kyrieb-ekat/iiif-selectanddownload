@@ -1,6 +1,16 @@
-var images = [];
+var images = []; // Stores image data for display and download
 
-function getManifest() {
+// --- Core Function: Get and Display Manifest ---
+var images = []; // Stores image data for display and download
+
+// --- Core Function: Get and Display Manifest ---
+var images = []; // Stores image data for display and download
+
+// --- Core Function: Get and Display Manifest ---
+var images = []; // Stores image data for display and download
+
+// --- Core Function: Get and Display Manifest ---
+async function getManifest() {
   var url = document.getElementById("url").value;
   if (!url) {
     showMessage("Please enter a manifest URL.");
@@ -10,82 +20,241 @@ function getManifest() {
   showMessage("Loading manifest...");
   console.log("Fetching manifest from URL:", url);
 
-  $.getJSON(url)
-    .done(function (manifest) {
-      console.log("Manifest loaded successfully:", manifest);
-      document.getElementById("img-container").innerHTML = "";
-      images = [];
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `HTTP error! Status: ${response.status} - ${
+          response.statusText
+        }. Details: ${errorText.substring(0, 200)}...`
+      );
+    }
+    const manifest = await response.json();
 
-      if (
-        !manifest.sequences ||
-        !manifest.sequences[0] ||
-        !manifest.sequences[0].canvases
-      ) {
-        showMessage("Error: Invalid manifest structure.");
-        console.error("Invalid manifest structure:", manifest);
-        return;
+    console.log("Manifest loaded successfully:", manifest);
+    document.getElementById("img-container").innerHTML = ""; // Clear previous images
+    images = []; // Reset images array
+
+    let canvases = [];
+    let isIIIFP3 = false;
+
+    // --- IIIF Version Detection and Canvas Extraction ---
+    if (
+      manifest["@context"] &&
+      manifest["@context"].includes(
+        "http://iiif.io/api/presentation/3/context.json"
+      )
+    ) {
+      isIIIFP3 = true;
+      if (manifest.items && Array.isArray(manifest.items)) {
+        canvases = manifest.items; // In P3, canvases are directly in 'items'
       }
+    } else if (
+      manifest.sequences &&
+      manifest.sequences[0] &&
+      manifest.sequences[0].canvases
+    ) {
+      // Assume IIIF Presentation 2.x
+      canvases = manifest.sequences[0].canvases;
+    }
 
-      manifest.sequences[0].canvases.forEach((canvas, index) => {
-        console.log("Processing canvas:", canvas);
-        if (!canvas.images || !canvas.images[0] || !canvas.images[0].resource) {
-          console.warn("Invalid canvas structure:", canvas);
-          return;
+    if (canvases.length === 0) {
+      showMessage(
+        "Error: No valid images or canvases found in manifest, or unrecognized IIIF structure."
+      );
+      console.error(
+        "No valid images or canvases found or invalid manifest structure for P2/P3:",
+        manifest
+      );
+      return;
+    }
+
+    // --- Process Each Canvas ---
+    canvases.forEach((canvas, index) => {
+      console.log("Processing canvas:", canvas);
+      let thumbnailUrl = "";
+      let fullImageUrlBase = "";
+      let imageLabel = he.decode(canvas.label || `Image ${index + 1}`);
+
+      // --- Extract Image URLs based on IIIF Version and Fallbacks ---
+      if (isIIIFP3) {
+        // --- Try IIIF Presentation 3.0 parsing first ---
+        const annotationPage = canvas.items && canvas.items[0];
+        const annotation =
+          annotationPage && annotationPage.items && annotationPage.items[0];
+        const body = annotation && annotation.body;
+
+        if (body) {
+          if (
+            body.service &&
+            Array.isArray(body.service) &&
+            body.service.length > 0
+          ) {
+            const imageService = body.service.find(
+              (s) =>
+                s.id &&
+                (s.id.includes("/iiif/image/") ||
+                  s.id.match(/\/images\/.+\/?$/) ||
+                  s.type === "ImageService2" ||
+                  s.type === "ImageService3")
+            );
+            if (imageService) {
+              fullImageUrlBase = imageService.id.endsWith("/")
+                ? imageService.id.slice(0, -1)
+                : imageService.id;
+              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+            } else if (body.id) {
+              fullImageUrlBase = body.id;
+              thumbnailUrl = body.id;
+            }
+          } else if (body.id) {
+            fullImageUrlBase = body.id;
+            thumbnailUrl = body.id;
+          }
         }
 
-        var img = canvas.images[0].resource;
-        var info =
-          img.service && img.service["@id"] ? img.service["@id"] : null;
-        if (info && !info.endsWith("/info.json")) info += "/info.json";
+        // --- FALLBACK for P3 manifests that embed P2-style images array ---
+        // If no image URL found with P3 parsing, try P2 parsing within this canvas
+        if (!thumbnailUrl) {
+          console.log(
+            "P3 parsing failed for canvas, attempting P2 fallback:",
+            canvas
+          );
+          const imageResource =
+            canvas.images && canvas.images[0] && canvas.images[0].resource;
+          if (imageResource) {
+            if (imageResource.service && imageResource.service["@id"]) {
+              fullImageUrlBase = imageResource.service["@id"].endsWith("/")
+                ? imageResource.service["@id"].slice(0, -1)
+                : imageResource.service["@id"];
+              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+            } else if (imageResource["@id"]) {
+              fullImageUrlBase = imageResource["@id"];
+              thumbnailUrl = imageResource["@id"];
+            }
+          }
+        }
+      } else {
+        // This block handles true IIIF Presentation 2.x manifests
+        const imageResource =
+          canvas.images && canvas.images[0] && canvas.images[0].resource;
+        if (imageResource) {
+          if (imageResource.service && imageResource.service["@id"]) {
+            fullImageUrlBase = imageResource.service["@id"].endsWith("/")
+              ? imageResource.service["@id"].slice(0, -1)
+              : imageResource.service["@id"];
+            thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+          } else if (imageResource["@id"]) {
+            fullImageUrlBase = imageResource["@id"];
+            thumbnailUrl = imageResource["@id"];
+          }
+        }
+      }
 
-        images.push({
-          url: img["@id"],
-          info: info,
-          label: he.decode(canvas.label || `Image ${index + 1}`),
-        });
+      if (!thumbnailUrl) {
+        console.warn(
+          "Could not determine image URL for canvas. Canvas data:",
+          canvas
+        );
+        return; // Skip this canvas if no displayable image URL found
+      }
 
-        // Create HTML elements dynamically
-        var container = document.createElement("div");
-        var checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.id = `img-${index}`;
-        checkbox.value = index;
-        checkbox.setAttribute("aria-label", `Select ${images[index].label}`);
+      // Standardize the info URL for the service (if an Image Service was found)
+      const isIIIFImageService =
+        fullImageUrlBase &&
+        (fullImageUrlBase.includes("/iiif/image/") ||
+          fullImageUrlBase.match(/\/images\/.+\/?$/) ||
+          fullImageUrlBase.match(/\/iiif\/[0-9]\/?$/));
+      var infoUrl = isIIIFImageService ? `${fullImageUrlBase}/info.json` : null;
 
-        var label = document.createElement("label");
-        label.htmlFor = `img-${index}`;
-        var imgElement = document.createElement("img");
-        imgElement.src = img["@id"];
-        imgElement.alt = he.decode(canvas.label || `Image ${index + 1}`);
-        imgElement.style.width = "100px";
-
-        label.appendChild(imgElement);
-
-        var labelText = document.createElement("p");
-        labelText.textContent = he.decode(canvas.label || `Image ${index + 1}`);
-
-        var directLink = document.createElement("p");
-        directLink.textContent = `Direct link: ${img["@id"]}`;
-
-        var infoLink = document.createElement("p");
-        infoLink.textContent = `Image info link: ${info || "N/A"}`;
-
-        container.appendChild(checkbox);
-        container.appendChild(label);
-        container.appendChild(labelText);
-        container.appendChild(directLink);
-        container.appendChild(infoLink);
-        document.getElementById("img-container").appendChild(container);
+      // Store image data
+      images.push({
+        thumbnail: thumbnailUrl,
+        fullImageApiBase: fullImageUrlBase,
+        info: infoUrl,
+        label: imageLabel,
       });
-      showMessage(
-        `Manifest loaded successfully. ${images.length} images found.`
-      );
-    })
-    .fail(function (jqXHR, textStatus, errorThrown) {
-      showMessage(`Error loading manifest: ${textStatus}, ${errorThrown}`);
-      console.error("Error loading manifest:", textStatus, errorThrown);
+
+      // --- Create HTML Elements for Image Display ---
+      var container = document.createElement("div");
+      container.className = "image-card fade-in-up";
+
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.id = `img-${images.length - 1}`;
+      checkbox.value = images.length - 1;
+      checkbox.setAttribute("aria-label", `Select ${imageLabel}`);
+
+      var labelWrapper = document.createElement("label");
+      labelWrapper.htmlFor = `img-${images.length - 1}`;
+      labelWrapper.style.display = "block";
+
+      var imgElement = document.createElement("img");
+      imgElement.src = thumbnailUrl;
+      imgElement.alt = imageLabel;
+      imgElement.style.maxWidth = "100%";
+      imgElement.style.height = "auto";
+      imgElement.style.display = "block";
+      imgElement.style.marginBottom = "10px";
+      imgElement.style.borderRadius = "var(--radius-md)";
+      imgElement.style.border = "1px solid var(--border-color)";
+
+      labelWrapper.appendChild(imgElement);
+
+      var labelText = document.createElement("p");
+      labelText.textContent = imageLabel;
+      labelText.style.fontWeight = "bold";
+      labelText.style.marginBottom = "5px";
+      labelText.style.color = "var(--text-primary)";
+      labelText.style.fontSize = "1.1rem";
+
+      var apiLink = document.createElement("p");
+      apiLink.innerHTML = `<strong>Image API Base:</strong> <a href="${fullImageUrlBase}" target="_blank" rel="noopener noreferrer">${fullImageUrlBase.substring(
+        0,
+        40
+      )}...</a>`;
+      apiLink.style.fontSize = "0.9rem";
+      apiLink.style.color = "var(--text-secondary)";
+      apiLink.style.marginBottom = "3px";
+
+      var infoJsonLink = document.createElement("p");
+      if (infoUrl) {
+        infoJsonLink.innerHTML = `<strong>Info JSON:</strong> <a href="${infoUrl}" target="_blank" rel="noopener noreferrer">View info.json</a>`;
+      } else {
+        infoJsonLink.textContent = `Info JSON: N/A`;
+      }
+      infoJsonLink.style.fontSize = "0.9rem";
+      infoJsonLink.style.color = "var(--text-secondary)";
+      infoJsonLink.style.marginBottom = "10px";
+
+      var selectContainer = document.createElement("div");
+      selectContainer.style.display = "flex";
+      selectContainer.style.alignItems = "center";
+      selectContainer.style.gap = "8px";
+      selectContainer.style.marginBottom = "10px";
+      selectContainer.appendChild(checkbox);
+      var selectLabelText = document.createElement("span");
+      selectLabelText.textContent = "Select for Download";
+      selectContainer.appendChild(selectLabelText);
+
+      container.appendChild(selectContainer);
+      container.appendChild(labelWrapper);
+      container.appendChild(labelText);
+      container.appendChild(apiLink);
+      container.appendChild(infoJsonLink);
+
+      document.getElementById("img-container").appendChild(container);
     });
+
+    showMessage(`Manifest loaded successfully. ${images.length} images found.`);
+  } catch (error) {
+    showMessage(`Error loading manifest: ${error.message}`);
+    console.error("Error loading manifest:", error);
+  }
 }
+
+// --- Utility Functions ---
 
 function selectAll() {
   var checkboxes = document.querySelectorAll('input[type="checkbox"]');
@@ -93,7 +262,7 @@ function selectAll() {
   checkboxes.forEach((checkbox) => (checkbox.checked = !allChecked));
 }
 
-// COMPLETELY REWRITTEN: Parallel processing with enhanced progress tracking
+// --- Download Selected Images ---
 async function downloadSelected() {
   var selectedImages = Array.from(
     document.querySelectorAll('input[type="checkbox"]:checked')
@@ -111,34 +280,45 @@ async function downloadSelected() {
   showDetailedProgress(0, selectedImages.length, "Initializing...");
 
   try {
-    // Configure zip.js for streaming
     zip.configure({
-      useWebWorkers: true, // Enable web workers for better performance
-      maxWorkers: 4, // Allow more concurrent workers
+      useWebWorkers: true,
+      maxWorkers: 4,
     });
 
-    // Create streaming zip writer
     const fileStream = streamSaver.createWriteStream("selected_images.zip");
     const zipWriter = new zip.ZipWriter(fileStream);
 
     console.log(`Starting download of ${selectedImages.length} images...`);
 
-    // Track progress
     let completed = 0;
     let failed = 0;
     const startTime = Date.now();
 
-    // Process images in parallel batches (controlled concurrency)
-    const BATCH_SIZE = 5; // Process 5 images simultaneously
+    const BATCH_SIZE = 5;
     const results = [];
 
     for (let i = 0; i < selectedImages.length; i += BATCH_SIZE) {
       const batch = selectedImages.slice(i, i + BATCH_SIZE);
 
-      // Process batch in parallel
       const batchPromises = batch.map(async (img, batchIndex) => {
         const globalIndex = i + batchIndex;
         const filename = sanitizeFilename(img.label) + ".jpg";
+
+        // --- CRUCIAL: Construct full-resolution image URL for download ---
+        // If it's a IIIF Image API base, request full/max size.
+        // Otherwise, assume it's a direct image URL and use it as is.
+        let imageUrlToDownload = img.fullImageApiBase;
+        if (
+          imageUrlToDownload &&
+          (imageUrlToDownload.includes("/iiif/image/") ||
+            imageUrlToDownload.match(/\/images\/.+\/?$/))
+        ) {
+          imageUrlToDownload = `${imageUrlToDownload}/full/max/0/default.jpg`;
+        }
+        // If fullImageApiBase was null or not an Image API, img.thumbnail would be the direct image URL,
+        // so we could fall back to that if fullImageApiBase wasn't specifically an image service.
+        // For simplicity and robustness, we'll use `fullImageApiBase` as the source for the highest resolution.
+        // If it was a direct image URL, it's already "full".
 
         try {
           updateDetailedProgress(
@@ -149,21 +329,21 @@ async function downloadSelected() {
             failed
           );
 
-          // Fetch image with timeout
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000); // 20 second timeout
+          const timeoutId = setTimeout(() => controller.abort(), 20000);
 
-          const response = await fetch(img.url, {
+          const response = await fetch(imageUrlToDownload, {
             signal: controller.signal,
           });
 
           clearTimeout(timeoutId);
 
           if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(
+              `HTTP ${response.status}: ${response.statusText} from ${imageUrlToDownload}`
+            );
           }
 
-          // Add to zip
           await zipWriter.add(filename, response.body);
 
           completed++;
@@ -182,7 +362,10 @@ async function downloadSelected() {
           return { success: true, filename, index: globalIndex };
         } catch (error) {
           failed++;
-          console.error(`✗ Error processing ${filename}:`, error);
+          console.error(
+            `✗ Error processing ${filename} (URL: ${imageUrlToDownload}):`,
+            error
+          );
 
           updateDetailedProgress(
             completed,
@@ -201,17 +384,14 @@ async function downloadSelected() {
         }
       });
 
-      // Wait for this batch to complete before starting next batch
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
 
-      // Small delay between batches to prevent overwhelming the server
       if (i + BATCH_SIZE < selectedImages.length) {
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
 
-    // Close the zip and start download
     updateDetailedProgress(
       completed,
       selectedImages.length,
@@ -239,7 +419,7 @@ async function downloadSelected() {
       failed
     );
 
-    setTimeout(() => resetProgress(), 3000); // Hide progress after 3 seconds
+    setTimeout(() => resetProgress(), 3000);
 
     console.log(
       `Zip creation completed: ${successCount}/${selectedImages.length} successful, ${failed} failed`
@@ -251,15 +431,14 @@ async function downloadSelected() {
   }
 }
 
-// NEW FUNCTION: Sanitize filenames for zip compatibility
+// --- Helper Functions ---
 function sanitizeFilename(filename) {
-  // Remove or replace characters that might cause issues in zip files
   return filename
-    .replace(/[<>:"/\\|?*]/g, "_") // Replace illegal characters
-    .replace(/\s+/g, "_") // Replace spaces with underscores
-    .replace(/_{2,}/g, "_") // Replace multiple underscores with single
-    .replace(/^_|_$/g, "") // Remove leading/trailing underscores
-    .substring(0, 100); // Limit length to avoid filesystem issues
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_{2,}/g, "_")
+    .replace(/^_|_$/g, "")
+    .substring(0, 100);
 }
 
 function showMessage(text) {
@@ -273,7 +452,6 @@ function resetProgress() {
   progressBar.querySelector(".progress-bar").innerText = "0%";
   progressBar.classList.add("hide");
 
-  // Also reset detailed progress
   const detailedProgress = document.getElementById("detailed_progress");
   if (detailedProgress) {
     detailedProgress.style.display = "none";
@@ -288,7 +466,6 @@ function updateProgress(percent) {
     Math.round(percent) + "%";
 }
 
-// NEW FUNCTION: Enhanced progress display with detailed information
 function showDetailedProgress(
   completed,
   total,
@@ -298,32 +475,30 @@ function showDetailedProgress(
 ) {
   let detailedProgress = document.getElementById("detailed_progress");
 
-  // Create detailed progress element if it doesn't exist
   if (!detailedProgress) {
     detailedProgress = document.createElement("div");
     detailedProgress.id = "detailed_progress";
     detailedProgress.style.cssText = `
             margin: 15px 0;
             padding: 15px;
-            background: #f5f5f5;
-            border-radius: 8px;
-            border-left: 4px solid #007bff;
+            background: var(--surface-color); /* Using CSS variable */
+            border-radius: var(--radius-md); /* Using CSS variable */
+            border-left: 4px solid var(--accent-color); /* Using CSS variable */
             font-family: monospace;
             font-size: 14px;
             line-height: 1.4;
+            color: var(--text-primary); /* Using CSS variable */
         `;
 
-    // Insert after the main progress bar
-    const progressBar = document.getElementById("progress_bar");
-    progressBar.parentNode.insertBefore(
+    const progressSection = document.getElementById("progress_bar");
+    progressSection.parentNode.insertBefore(
       detailedProgress,
-      progressBar.nextSibling
+      progressSection.nextSibling
     );
   }
 
   detailedProgress.style.display = "block";
 
-  // Calculate stats
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   let timeInfo = "";
 
@@ -336,17 +511,16 @@ function showDetailedProgress(
     timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
   }
 
-  // Build status display
   let statusHtml = `
         <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
             <strong>Download Progress</strong>
-            <span style="color: #007bff;">${percentage}% (${completed}/${total})</span>
+            <span style="color: var(--primary-color);">${percentage}% (${completed}/${total})</span>
         </div>
     `;
 
   if (timeInfo) {
     statusHtml += `
-            <div style="color: #666; margin-bottom: 8px; font-size: 12px;">
+            <div style="color: var(--text-secondary); margin-bottom: 8px; font-size: 12px;">
                 ${timeInfo}
             </div>
         `;
@@ -360,7 +534,7 @@ function showDetailedProgress(
 
   if (failed > 0) {
     statusHtml += `
-            <div style="color: #dc3545; font-size: 12px;">
+            <div style="color: var(--warning-color); font-size: 12px;">
                 ⚠️ ${failed} image(s) failed to download
             </div>
         `;
@@ -369,7 +543,6 @@ function showDetailedProgress(
   detailedProgress.innerHTML = statusHtml;
 }
 
-// NEW FUNCTION: Update detailed progress during download
 function updateDetailedProgress(
   completed,
   total,
@@ -380,7 +553,6 @@ function updateDetailedProgress(
   showDetailedProgress(completed, total, currentAction, startTime, failed);
 }
 
-// NEW FUNCTION: Format seconds into readable time
 function formatTime(seconds) {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);
@@ -388,7 +560,7 @@ function formatTime(seconds) {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
-// Add event listeners after the DOM is fully loaded
+// --- Event Listeners ---
 document.addEventListener("DOMContentLoaded", function () {
   document
     .getElementById("loadManifest")
@@ -399,4 +571,6 @@ document.addEventListener("DOMContentLoaded", function () {
     .addEventListener("click", downloadSelected);
 });
 
-console.log("main.js loaded successfully with streaming zip support");
+console.log(
+  "main.js loaded successfully with IIIF P2/P3 auto-detection and streaming zip support"
+);
