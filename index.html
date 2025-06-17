@@ -1,767 +1,609 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IIIF One-stop - Digital Scriptorium</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IIIF One-stop - Digital Research Tools</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Cinzel:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Cinzel+Decorative:wght@700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+      :root {
+        --primary-color: #8b5a3c;
+        --primary-dark: #6b4423;
+        --secondary-color: #5d4037;
+        --accent-color: #d4af37;
+        --bg-color: #f8f5f0;
+        --surface-color: #f0ead6;
+        --card-color: #fffffb;
+        --text-primary: #3d2914;
+        --text-secondary: #5d4037;
+        --border-color: #d2c4a8;
+        --border-accent: #8b5a3c;
+        --success-color: #558b2f;
+        --warning-color: #bf6f00;
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+        --shadow-sm: 0 1px 3px rgba(61, 41, 20, 0.08);
+        --shadow-md: 0 4px 8px rgba(61, 41, 20, 0.12);
+        --shadow-lg: 0 8px 20px rgba(61, 41, 20, 0.15);
+      }
+
+      body {
+        font-family: "Crimson Text", serif;
+        background: linear-gradient(
+          135deg,
+          var(--bg-color) 0%,
+          var(--surface-color) 100%
+        );
+        background-attachment: fixed;
+        color: var(--text-primary);
+        line-height: 1.7;
+        min-height: 100vh;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      /* Header */
+      .header {
+        padding: 80px 0;
+        text-align: center;
+        background: var(--card-color);
+        margin-bottom: 80px;
+        border-bottom: 4px solid var(--accent-color);
+        box-shadow: var(--shadow-md);
+      }
+
+      .header h1 {
+        font-family: "Cinzel", serif;
+        font-size: 3.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        position: relative;
+      }
+
+      .header h1::after {
+        content: "";
+        position: absolute;
+        bottom: -12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 80px;
+        height: 3px;
+        background: var(--accent-color);
+        border-radius: 2px;
+      }
+
+      .header .subtitle {
+        font-family: "Cinzel", serif;
+        font-size: 1.4rem;
+        color: var(--primary-color);
+        margin-bottom: 24px;
+        font-style: italic;
+        font-weight: 400;
+      }
+
+      .header .description {
+        font-size: 1.2rem;
+        color: var(--text-secondary);
+        max-width: 700px;
+        margin: 0 auto;
+        line-height: 1.8;
+      }
+
+      /* Tools Grid */
+      .tools-section {
+        padding: 0 0 80px 0;
+      }
+
+      .tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+        gap: 32px;
+        margin-bottom: 80px;
+      }
+
+      .tool-card {
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 36px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .tool-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(
+          90deg,
+          var(--primary-color),
+          var(--accent-color)
+        );
+        opacity: 0.8;
+      }
+
+      .tool-card:hover {
+        transform: translateY(-6px);
+        box-shadow: var(--shadow-lg);
+        border-color: var(--border-accent);
+      }
+
+      .tool-card.featured::before {
+        background: linear-gradient(
+          90deg,
+          var(--accent-color),
+          var(--primary-color)
+        );
+        height: 5px;
+      }
+
+      .tool-status {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        border: 2px solid var(--card-color);
+      }
+
+      .tool-status.available {
+        background: var(--success-color);
+      }
+
+      .tool-status.new {
+        background: var(--accent-color);
+      }
+
+      .tool-status.beta {
+        background: var(--warning-color);
+      }
+
+      .tool-icon {
+        font-size: 3rem;
+        margin-bottom: 20px;
+        display: block;
+        filter: grayscale(0.2);
+      }
+
+      .tool-title {
+        font-family: "Cinzel", serif;
+        font-size: 1.7rem;
+        font-weight: 600;
+        margin-bottom: 16px;
+        color: var(--text-primary);
+        border-bottom: 2px solid var(--accent-color);
+        padding-bottom: 8px;
+      }
+
+      .tool-description {
+        color: var(--text-secondary);
+        line-height: 1.7;
+        margin-bottom: 20px;
+      }
+
+      .tool-features {
+        list-style: none;
+        margin-bottom: 28px;
+      }
+
+      .tool-features li {
+        padding: 6px 0;
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        position: relative;
+        padding-left: 20px;
+      }
+
+      .tool-features li::before {
+        content: "•";
+        position: absolute;
+        left: 0;
+        color: var(--accent-color);
+        font-weight: bold;
+        font-size: 1.2rem;
+      }
+
+      .tool-link {
+        display: inline-block;
+        background: linear-gradient(
+          135deg,
+          var(--primary-color),
+          var(--accent-color)
+        );
+        color: var(--card-color);
+        text-decoration: none;
+        padding: 14px 28px;
+        border-radius: var(--radius-md);
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-accent);
+        letter-spacing: 0.3px;
+      }
+
+      .tool-link:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        filter: brightness(1.1);
+      }
+
+      .tool-link.coming-soon {
+        background: linear-gradient(135deg, #8d6e63, #6d4c41);
+        cursor: not-allowed;
+        opacity: 0.7;
+      }
+
+      .tool-link.coming-soon:hover {
+        transform: none;
+        filter: none;
+      }
+
+      /* About Section */
+      .about-section {
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 48px;
+        margin-bottom: 80px;
+        box-shadow: var(--shadow-md);
+        border: 1px solid var(--border-color);
+        text-align: center;
+        position: relative;
+      }
+
+      .about-section::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(
+          90deg,
+          var(--accent-color),
+          var(--primary-color),
+          var(--accent-color)
+        );
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      }
+
+      .about-title {
+        font-family: "Cinzel", serif;
+        font-size: 2.2rem;
+        font-weight: 600;
+        margin-bottom: 24px;
+        color: var(--text-primary);
+      }
+
+      .about-text {
+        color: var(--text-secondary);
+        line-height: 1.8;
+        margin-bottom: 32px;
+        font-size: 1.1rem;
+        max-width: 800px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .about-links {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+
+      .about-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: linear-gradient(135deg, var(--accent-color), #e6c452);
+        color: var(--text-primary);
+        text-decoration: none;
+        padding: 16px 24px;
+        border-radius: var(--radius-md);
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-accent);
+      }
+
+      .about-link:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        filter: brightness(1.1);
+      }
+
+      /* Footer */
+      .footer {
+        text-align: center;
+        padding: 40px 0;
+        background: var(--surface-color);
+        border-top: 1px solid var(--border-color);
+        margin-top: 40px;
+      }
+
+      .footer p {
+        color: var(--text-secondary);
+        font-family: "Cinzel", serif;
+        margin-bottom: 8px;
+      }
+
+      .footer a {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-weight: 600;
+        transition: color 0.3s ease;
+      }
+
+      .footer a:hover {
+        color: var(--accent-color);
+      }
+
+      .footer-quote {
+        font-size: 0.9rem;
+        opacity: 0.8;
+        margin-top: 12px;
+        font-style: italic;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
+        .container {
+          padding: 0 16px;
         }
 
-        body {
-            font-family: 'Crimson Text', serif;
-            background: linear-gradient(135deg, #f0ead6 0%, #e6d7ba 100%);
-            background-image: 
-                radial-gradient(circle at 20% 30%, rgba(101, 67, 33, 0.04) 0%, transparent 40%),
-                radial-gradient(circle at 80% 70%, rgba(139, 69, 19, 0.03) 0%, transparent 45%),
-                radial-gradient(circle at 40% 80%, rgba(160, 82, 45, 0.02) 0%, transparent 30%),
-                url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="parchment" width="30" height="30" patternUnits="userSpaceOnUse"><circle cx="15" cy="8" r="0.8" fill="rgba(139,69,19,0.08)"/><circle cx="22" cy="20" r="0.6" fill="rgba(101,67,33,0.06)"/><circle cx="8" cy="25" r="0.4" fill="rgba(160,82,45,0.05)"/></pattern></defs><rect width="100" height="100" fill="url(%23parchment)"/></svg>');
-            min-height: 100vh;
-            color: #3d2914;
-            line-height: 1.7;
+        .header {
+          padding: 60px 0;
+          margin-bottom: 60px;
         }
 
-        .manuscript-border {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            border: 15px solid;
-            border-image: linear-gradient(45deg, #704214, #8b4513, #654321, #5d4037) 1;
-            pointer-events: none;
-            z-index: 1000;
-            opacity: 0.8;
+        .header h1 {
+          font-size: 2.5rem;
         }
 
-        .manuscript-border::before {
-            content: '';
-            position: absolute;
-            top: -15px;
-            left: -15px;
-            right: -15px;
-            bottom: -15px;
-            border: 2px solid #5d4037;
-            border-radius: 8px;
-            opacity: 0.6;
+        .header .subtitle {
+          font-size: 1.2rem;
         }
 
-        .hero-section {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 4rem 2rem;
-            position: relative;
-            overflow: hidden;
+        .tools-grid {
+          grid-template-columns: 1fr;
+          gap: 24px;
+          margin-bottom: 60px;
         }
 
-        .illuminated-border {
-            position: absolute;
-            top: 50px;
-            left: 50px;
-            right: 50px;
-            bottom: 50px;
-            border: 2px solid #704214;
-            border-radius: 12px;
-            background: rgba(240, 234, 214, 0.15);
-            pointer-events: none;
-            opacity: 0.7;
+        .tool-card {
+          padding: 28px;
         }
 
-        .illuminated-border::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            left: -8px;
-            right: -8px;
-            bottom: -8px;
-            border: 1px solid #8b4513;
-            border-radius: 16px;
-            opacity: 0.5;
+        .about-section {
+          padding: 32px 24px;
+          margin-bottom: 60px;
         }
 
-        .marginalia-decoration {
-            position: absolute;
-            opacity: 0.7;
-            pointer-events: none;
-            z-index: 1;
+        .about-links {
+          flex-direction: column;
+          align-items: center;
         }
+      }
 
-        .marginalia-top-left {
-            top: 80px;
-            left: 80px;
-            width: 280px;
-            height: 150px;
-            background: url('../marginalia/hispanic_initial_wolf.png') no-repeat center;
-            background-size: contain;
-            transform: rotate(-5deg);
+      /* Animations */
+      @keyframes fadeInUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
         }
-
-        .marginalia-top-right {
-            top: 100px;
-            right: 80px;
-            width: 270px;
-            height: 170px;
-            background: url('../marginalia/marginalia_duel.jpg') no-repeat center;
-            background-size: contain;
-            transform: rotate(8deg);
+        to {
+          opacity: 1;
+          transform: translateY(0);
         }
+      }
 
-        .marginalia-bottom-left {
-            bottom: 100px;
-            left: 60px;
-            width: 230px;
-            height: 170px;
-            background: url('../marginalia/marginalia_hedgehog.jpg') no-repeat center;
-            background-size: contain;
-            transform: rotate(3deg);
-        }
+      .fade-in-up {
+        animation: fadeInUp 0.6s ease-out forwards;
+      }
 
-        .marginalia-creature {
-            bottom: 80px;
-            right: 100px;
-            width: 250px;
-            height: 200px;
-            background: url('../marginalia/rabbit_dog_marginalia.jpg') no-repeat center;
-            background-size: contain;
-            transform: rotate(-2deg);
-            animation: creatureFloat 8s ease-in-out infinite;
-        }
+      /* Scroll animations */
+      .tool-card {
+        opacity: 0;
+        transform: translateY(30px);
+        transition: opacity 0.6s ease, transform 0.6s ease;
+      }
 
-        @keyframes creatureFloat {
-            0%, 100% { transform: rotate(-2deg) translateY(0px); }
-            50% { transform: rotate(-2deg) translateY(-10px); }
-        }
-
-        .hero-content {
-            background: rgba(248, 245, 235, 0.92);
-            border-radius: 15px;
-            padding: 4rem 3rem;
-            box-shadow: 
-                0 0 0 2px #704214,
-                0 0 0 4px rgba(139, 69, 19, 0.6),
-                0 15px 30px rgba(61, 41, 20, 0.25),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
-            backdrop-filter: blur(3px);
-            max-width: 800px;
-            width: 100%;
-            position: relative;
-            z-index: 10;
-            border: 1px solid #8b4513;
-        }
-
-        .hero-content::before {
-            content: '';
-            position: absolute;
-            top: -1px;
-            left: -1px;
-            right: -1px;
-            bottom: -1px;
-            background: linear-gradient(45deg, rgba(139, 69, 19, 0.3), transparent, rgba(139, 69, 19, 0.3), transparent);
-            z-index: -1;
-            border-radius: 16px;
-        }
-
-        .illuminated-initial {
-            font-family: 'Cinzel Decorative', serif;
-            font-size: 8rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, #704214 0%, #8b4513 25%, #a0522d 50%, #8b4513 75%, #654321 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            color: transparent;
-            text-shadow: 1px 1px 2px rgba(112, 66, 20, 0.3);
-            line-height: 0.8;
-            margin-bottom: 1rem;
-            position: relative;
-            display: inline-block;
-        }
-
-        .illuminated-initial::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            left: -8px;
-            right: -8px;
-            bottom: -8px;
-            background: radial-gradient(circle at center, rgba(139, 69, 19, 0.1) 0%, transparent 60%);
-            z-index: -1;
-            border-radius: 50%;
-        }
-
-        .title-text {
-            font-family: 'Cinzel', serif;
-            font-size: 3rem;
-            font-weight: 600;
-            color: #3d2914;
-            margin-bottom: 1rem;
-            text-shadow: 1px 1px 2px rgba(139, 69, 19, 0.2);
-        }
-
-        .subtitle {
-            font-family: 'Cinzel', serif;
-            font-size: 1.3rem;
-            color: #8b4513;
-            margin-bottom: 2rem;
-            font-style: italic;
-            font-weight: 400;
-        }
-
-        .description {
-            font-size: 1.2rem;
-            color: #5d4037;
-            margin-bottom: 2rem;
-            line-height: 1.8;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-
-        .tools-scriptorium {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 3rem;
-            margin: 4rem auto;
-            padding: 0 2rem;
-            max-width: 1200px;
-        }
-
-        .manuscript-page {
-            background: linear-gradient(135deg, #f8f5f0 0%, #f0ead6 100%);
-            border-radius: 12px;
-            padding: 2.5rem;
-            box-shadow: 
-                0 0 0 1px #704214,
-                0 0 0 3px rgba(139, 69, 19, 0.4),
-                0 10px 20px rgba(61, 41, 20, 0.15),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
-            transition: all 0.4s cubic-bezier(0.23, 1, 0.320, 1);
-            border: 1px solid #8b4513;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .manuscript-page::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, #704214, #8b4513, #704214);
-            opacity: 0.8;
-        }
-
-        .manuscript-page::after {
-            content: '';
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            width: 40px;
-            height: 40px;
-            background: url('./corner-decoration.jpg') no-repeat center;
-            background-size: contain;
-            opacity: 0.2;
-        }
-
-        .manuscript-page:hover {
-            transform: translateY(-6px) scale(1.01);
-            box-shadow: 
-                0 0 0 1px #704214,
-                0 0 0 3px rgba(139, 69, 19, 0.5),
-                0 15px 30px rgba(61, 41, 20, 0.2),
-                inset 0 1px 0 rgba(255, 255, 255, 0.7);
-        }
-
-        .manuscript-page.featured::before {
-            background: linear-gradient(90deg, #8b4513, #a0522d, #8b4513);
-            height: 4px;
-        }
-
-        .tool-illumination {
-            font-size: 4rem;
-            margin-bottom: 1.5rem;
-            display: block;
-            text-align: center;
-            filter: drop-shadow(2px 2px 4px rgba(139, 69, 19, 0.3));
-        }
-
-        .manuscript-title {
-            font-family: 'Cinzel', serif;
-            font-size: 1.6rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            color: #3d2914;
-            text-align: center;
-            border-bottom: 2px solid #d2691e;
-            padding-bottom: 0.5rem;
-        }
-
-        .manuscript-text {
-            color: #5d4037;
-            line-height: 1.7;
-            margin-bottom: 1.5rem;
-            text-align: justify;
-        }
-
-        .illuminated-list {
-            list-style: none;
-            margin-bottom: 2rem;
-        }
-
-        .illuminated-list li {
-            padding: 0.4rem 0;
-            color: #5d4037;
-            font-size: 0.95rem;
-            position: relative;
-            padding-left: 1.5rem;
-        }
-
-        .illuminated-list li::before {
-            content: '❦';
-            position: absolute;
-            left: 0;
-            color: #8b4513;
-            font-size: 1.1rem;
-        }
-
-        .scriptorium-link {
-            display: inline-block;
-            background: linear-gradient(135deg, #704214 0%, #8b4513 50%, #654321 100%);
-            color: #f8f5f0;
-            text-decoration: none;
-            padding: 12px 24px;
-            border-radius: 6px;
-            font-family: 'Cinzel', serif;
-            font-weight: 600;
-            font-size: 0.95rem;
-            transition: all 0.3s ease;
-            box-shadow: 
-                0 3px 6px rgba(112, 66, 20, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.15);
-            border: 1px solid #5d4037;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .scriptorium-link:hover {
-            transform: translateY(-1px);
-            box-shadow: 
-                0 5px 12px rgba(112, 66, 20, 0.5),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            background: linear-gradient(135deg, #8b4513 0%, #704214 50%, #8b4513 100%);
-        }
-
-        .scriptorium-link.coming-soon {
-            background: linear-gradient(135deg, #8d6e63 0%, #6d4c41 50%, #8d6e63 100%);
-            cursor: not-allowed;
-            opacity: 0.7;
-        }
-
-        .scriptorium-link.coming-soon:hover {
-            transform: none;
-            box-shadow: 0 4px 8px rgba(139, 69, 19, 0.4);
-        }
-
-        .monastery-seal {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
-            width: 45px;
-            height: 45px;
-            background: radial-gradient(circle, #a0522d 0%, #8b4513 100%);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Cinzel', serif;
-            font-weight: 700;
-            color: #f8f5f0;
-            font-size: 0.75rem;
-            border: 2px solid #704214;
-            box-shadow: 0 2px 6px rgba(112, 66, 20, 0.4);
-        }
-
-        .monastery-seal.new::after {
-            content: 'NEW';
-        }
-
-        .monastery-seal.featured::after {
-            content: '★';
-            font-size: 1.2rem;
-        }
-
-        .monastery-seal.beta::after {
-            content: 'β';
-            font-size: 1.2rem;
-        }
-
-        .scriptorium-about {
-            background: linear-gradient(135deg, #fffffb 0%, #f8f5f0 100%);
-            margin: 4rem auto;
-            max-width: 900px;
-            border-radius: 20px;
-            padding: 4rem 3rem;
-            box-shadow: 
-                0 0 0 3px #8b4513,
-                0 0 0 6px #d2691e,
-                0 20px 40px rgba(61, 41, 20, 0.2),
-                inset 0 1px 0 rgba(255, 255, 255, 0.8);
-            border: 2px solid #654321;
-            position: relative;
-        }
-
-        .scriptorium-about::before {
-            content: '';
-            position: absolute;
-            top: -15px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 80px;
-            height: 30px;
-            background: linear-gradient(135deg, #d4af37 0%, #ffd700 100%);
-            border-radius: 15px;
-            border: 2px solid #8b4513;
-        }
-
-        .about-title {
-            font-family: 'Cinzel', serif;
-            font-size: 2.5rem;
-            font-weight: 600;
-            margin-bottom: 2rem;
-            color: #3d2914;
-            text-align: center;
-            text-shadow: 1px 1px 2px rgba(139, 69, 19, 0.2);
-        }
-
-        .about-text {
-            color: #5d4037;
-            line-height: 1.8;
-            text-align: center;
-            margin-bottom: 2.5rem;
-            font-size: 1.1rem;
-        }
-
-        .monastery-links {
-            display: flex;
-            justify-content: center;
-            gap: 1.5rem;
-            flex-wrap: wrap;
-        }
-
-        .monastery-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: linear-gradient(135deg, #d2691e 0%, #daa520 50%, #d2691e 100%);
-            color: #fffffb;
-            text-decoration: none;
-            padding: 14px 24px;
-            border-radius: 10px;
-            font-family: 'Cinzel', serif;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            box-shadow: 
-                0 4px 12px rgba(210, 105, 30, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            border: 1px solid #b8860b;
-        }
-
-        .monastery-link:hover {
-            transform: translateY(-2px);
-            box-shadow: 
-                0 8px 20px rgba(210, 105, 30, 0.6),
-                inset 0 1px 0 rgba(255, 255, 255, 0.3);
-        }
-
-        .monastery-footer {
-            text-align: center;
-            padding: 3rem 2rem;
-            background: rgba(139, 69, 19, 0.1);
-            border-top: 3px solid #8b4513;
-            margin-top: 4rem;
-        }
-
-        .monastery-footer p {
-            color: #5d4037;
-            font-family: 'Cinzel', serif;
-            margin-bottom: 0.5rem;
-        }
-
-        .monastery-footer a {
-            color: #8b4513;
-            text-decoration: none;
-            font-weight: 600;
-        }
-
-        .monastery-footer a:hover {
-            color: #d2691e;
-        }
-
-        .floating-manuscript {
-            position: fixed;
-            opacity: 0.1;
-            pointer-events: none;
-            z-index: 0;
-            animation: manuscriptFloat 12s ease-in-out infinite;
-        }
-
-        .floating-manuscript:nth-child(1) {
-            top: 10%;
-            left: 5%;
-            animation-delay: 0s;
-        }
-
-        .floating-manuscript:nth-child(2) {
-            top: 70%;
-            right: 5%;
-            animation-delay: 4s;
-        }
-
-        .floating-manuscript:nth-child(3) {
-            bottom: 10%;
-            left: 10%;
-            animation-delay: 8s;
-        }
-
-        @keyframes manuscriptFloat {
-            0%, 100% { transform: translateY(0px) rotate(0deg); }
-            25% { transform: translateY(-15px) rotate(1deg); }
-            50% { transform: translateY(-5px) rotate(-1deg); }
-            75% { transform: translateY(-20px) rotate(0.5deg); }
-        }
-
-        @media (max-width: 768px) {
-            .manuscript-border {
-                border-width: 10px;
-            }
-
-            .hero-content {
-                padding: 2.5rem 1.5rem;
-                margin: 1rem;
-            }
-
-            .illuminated-initial {
-                font-size: 5rem;
-            }
-
-            .title-text {
-                font-size: 2rem;
-            }
-
-            .tools-scriptorium {
-                grid-template-columns: 1fr;
-                padding: 0 1rem;
-                gap: 2rem;
-            }
-
-            .scriptorium-about {
-                margin: 2rem 1rem;
-                padding: 2rem;
-            }
-
-            .marginalia-decoration {
-                display: none;
-            }
-
-            .illuminated-border {
-                display: none;
-            }
-        }
+      .tool-card.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
     </style>
-</head>
-<body>
-    <div class="manuscript-border"></div>
-    
-    <div class="floating-manuscript">📜</div>
-    <div class="floating-manuscript">🖋️</div>
-    <div class="floating-manuscript">📚</div>
-
-    <div class="hero-section">
-        <div class="illuminated-border"></div>
-        
-        <!-- Marginalia decorations - replace with your actual images -->
-        <div class="marginalia-decoration marginalia-top-left"></div>
-        <div class="marginalia-decoration marginalia-top-right"></div>
-        <div class="marginalia-decoration marginalia-bottom-left"></div>
-        <div class="marginalia-decoration marginalia-creature"></div>
-
-        <div class="hero-content">
-            <div class="illuminated-initial">I</div>
-            <h1 class="title-text">IIF One-stop</h1>
-            <p class="subtitle">~ Digital Scriptorium for Modern Scholars ~</p>
-            <p class="description">
-                In the tradition of monastic scribes who preserved and illuminated manuscripts, 
-                these tools serve the modern scholar's quest to access, analyze, and preserve 
-                our digital heritage through the IIIF standard.
-            </p>
-        </div>
+  </head>
+  <body>
+    <div class="header">
+      <div class="container">
+        <h1>IIIF One-stop</h1>
+        <p class="subtitle">Digital Research Tools</p>
+        <p class="description">
+          A collection of specialized tools designed to streamline digital
+          humanities research with IIIF collections. Built for scholars, by
+          scholars.
+        </p>
+      </div>
     </div>
 
-    <div class="tools-scriptorium">
-        <div class="manuscript-page featured">
-            <div class="monastery-seal featured"></div>
-            <div class="tool-illumination">📖</div>
-            <h3 class="manuscript-title">Selective Manuscript Extractor</h3>
-            <p class="manuscript-text">
-                As a careful scribe selects only the finest vellum, choose precisely which folios 
-                you require from any IIIF manuscript. No longer must you burden your scriptorium 
-                with unnecessary downloads of entire codices.
+    <div class="container">
+      <div class="tools-section">
+        <div class="tools-grid">
+          <div class="tool-card featured">
+            <div class="tool-status available"></div>
+            <div class="tool-icon">📖</div>
+            <h3 class="tool-title">Selective Image Downloader</h3>
+            <p class="tool-description">
+              Choose exactly which images you need from any IIIF manifest.
+              Preview, select, and download individual items or entire
+              collections with precision and efficiency.
             </p>
-            <ul class="illuminated-list">
-                <li>Browse illuminated pages with thumbnail clarity</li>
-                <li>Select individual folios or continuous quires</li>
-                <li>Download high-resolution images for your study</li>
-                <li>Preserve bandwidth for other scholarly pursuits</li>
+            <ul class="tool-features">
+              <li>Browse collections with thumbnail previews</li>
+              <li>Select individual images or ranges</li>
+              <li>Download high-resolution versions</li>
+              <li>Efficient bandwidth usage</li>
             </ul>
-            <a href="./download%20copy/" class="scriptorium-link">Enter the Archive</a>
-        </div>
+            <a href="./download%20copy/" class="tool-link">Open Tool</a>
+          </div>
 
-        <div class="manuscript-page">
-            <div class="monastery-seal new"></div>
-            <div class="tool-illumination">⚖️</div>
-            <h3 class="manuscript-title">Presentation API Translator</h3>
-            <p class="manuscript-text">
-                Like translating between Latin, Greek, and the vernacular, this tool converts 
-                IIIF manifests between different API versions, ensuring your digital manuscripts 
-                remain accessible across all scriptoriums.
+          <div class="tool-card">
+            <div class="tool-status new"></div>
+            <div class="tool-icon">⚖️</div>
+            <h3 class="tool-title">Manifest Converter</h3>
+            <p class="tool-description">
+              Convert IIIF manifests between different API versions seamlessly.
+              Ensure compatibility across platforms and maintain access to
+              digital collections regardless of their API version.
             </p>
-            <ul class="illuminated-list">
-                <li>Bidirectional conversion between API versions</li>
-                <li>Automatic language map transformation</li>
-                <li>Validation and error correction</li>
-                <li>Preserve scholarly metadata integrity</li>
+            <ul class="tool-features">
+              <li>Bidirectional API version conversion</li>
+              <li>Automatic metadata transformation</li>
+              <li>Validation and error checking</li>
+              <li>Preserve collection integrity</li>
             </ul>
-            <a href="./manifest_converter/" class="scriptorium-link">Begin Translation</a>
-        </div>
+            <a href="./manifest_converter/" class="tool-link">Convert Now</a>
+          </div>
 
-        <div class="manuscript-page">
-            <div class="monastery-seal beta"></div>
-            <div class="tool-illumination">✂️</div>
-            <h3 class="manuscript-title">Illumination Cropper</h3>
-            <p class="manuscript-text">
-                Extract miniatures, marginalia, and detailed sections with the precision of a 
-                master illuminator. Perfect for focusing on specific decorative elements or 
-                textual details within larger manuscript pages.
+          <div class="tool-card">
+            <div class="tool-status beta"></div>
+            <div class="tool-icon">✂️</div>
+            <h3 class="tool-title">Image Region Extractor</h3>
+            <p class="tool-description">
+              Extract specific regions from IIIF images with precision. Perfect
+              for focusing on details, marginalia, or specific elements within
+              larger digital objects.
             </p>
-            <ul class="illuminated-list">
-                <li>Interactive selection of manuscript regions</li>
-                <li>IIIF Image API integration for precision</li>
-                <li>Multiple formats for diverse scholarly needs</li>
-                <li>Batch processing for extensive research</li>
+            <ul class="tool-features">
+              <li>Interactive region selection</li>
+              <li>IIIF Image API integration</li>
+              <li>Multiple export formats</li>
+              <li>Batch processing capabilities</li>
             </ul>
-            <a href="#" class="scriptorium-link coming-soon">In Preparation</a>
-        </div>
+            <a href="./image_extractor/" class="tool-link coming-soon"
+              >In Development</a
+            >
+          </div>
 
-        <div class="manuscript-page">
-            <div class="monastery-seal beta"></div>
-            <div class="tool-illumination">🔍</div>
-            <h3 class="manuscript-title">Manuscript Examiner</h3>
-            <p class="manuscript-text">
-                Peer into the structure of IIIF manifests as a paleographer examines parchment. 
-                Understand the composition, validate authenticity, and explore the digital 
-                craftsmanship of your collections.
+          <div class="tool-card">
+            <div class="tool-status beta"></div>
+            <div class="tool-icon">🔍</div>
+            <h3 class="tool-title">Manifest Analyzer</h3>
+            <p class="tool-description">
+              Examine IIIF manifest structure and metadata in detail. Understand
+              collection organization, validate compliance, and explore the
+              technical aspects of digital collections.
             </p>
-            <ul class="illuminated-list">
-                <li>Deep structural analysis of manifests</li>
-                <li>Metadata visualization and exploration</li>
-                <li>Validation against current standards</li>
-                <li>Export findings for further study</li>
+            <ul class="tool-features">
+              <li>Deep structural analysis</li>
+              <li>Metadata visualization</li>
+              <li>Standards compliance checking</li>
+              <li>Export analysis reports</li>
             </ul>
-            <a href="#" class="scriptorium-link coming-soon">Under Illumination</a>
+            <a href="./manuscript_compositor/" class="tool-link">Coming Soon</a>
+          </div>
         </div>
-    </div>
+      </div>
 
-    <div class="scriptorium-about">
-        <h2 class="about-title">About This Digital Scriptorium</h2>
+      <div class="about-section">
+        <h2 class="about-title">About This Project</h2>
         <p class="about-text">
-            Built by a digital humanist for fellow scholars, these tools bridge the ancient art 
-            of manuscript preservation with modern IIIF technologies. Just as medieval scribes 
-            created tools to better serve their calling, these instruments aim to make your 
-            research more efficient and your discoveries more accessible.
+          These tools were created to address common challenges in digital
+          humanities research. Each utility focuses on a specific need in
+          working with IIIF collections, from efficient downloading to format
+          conversion and detailed analysis. The goal is to make digital
+          scholarship more accessible and efficient.
         </p>
-        <div class="monastery-links">
-            <a href="https://github.com/kyrieb-ekat?tab=repositories" class="monastery-link">
-                📜 View Manuscripts (GitHub)
-            </a>
-            <a href="mailto:kyrie.bouressa@mail.mcgill.ca" class="monastery-link">
-                ✉️ Send a Message
-            </a>
+        <div class="about-links">
+          <a
+            href="https://github.com/kyrieb-ekat?tab=repositories"
+            class="about-link"
+          >
+            📁 View Source Code
+          </a>
+          <a href="mailto:kyrie.bouressa@mail.mcgill.ca" class="about-link">
+            ✉️ Contact Developer
+          </a>
         </div>
+      </div>
     </div>
 
-    <div class="monastery-footer">
+    <div class="footer">
+      <div class="container">
         <p>
-            Crafted with scholarly devotion by 
-            <a href="mailto:kyrie.bouressa@mail.mcgill.ca">Kyrie Bouressa</a>, 
-            <span style="font-family: 'Crimson Text', serif; font-style: italic;">Anno Domini</span> 2024
+          Created by
+          <a href="mailto:kyrie.bouressa@mail.mcgill.ca">Kyrie Bouressa</a> •
+          2025
         </p>
-        <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 0.5rem;">
-            <em>"Verba volant, scripta manent"</em> — Supporting the IIIF community's mission to preserve digital heritage
+        <p class="footer-quote">
+          Supporting the IIIF community's mission to make digital collections
+          more accessible
         </p>
+      </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Animate manuscript pages on scroll
-            const observer = new IntersectionObserver((entries) => {
-                entries.forEach((entry, index) => {
-                    if (entry.isIntersecting) {
-                        setTimeout(() => {
-                            entry.target.style.opacity = '1';
-                            entry.target.style.transform = 'translateY(0) rotate(0deg)';
-                        }, index * 150);
-                    }
-                });
+      document.addEventListener("DOMContentLoaded", function () {
+        // Animate cards on scroll
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry, index) => {
+              if (entry.isIntersecting) {
+                setTimeout(() => {
+                  entry.target.classList.add("visible");
+                }, index * 150);
+              }
             });
+          },
+          {
+            threshold: 0.1,
+            rootMargin: "0px 0px -50px 0px",
+          }
+        );
 
-            document.querySelectorAll('.manuscript-page').forEach((page, index) => {
-                page.style.opacity = '0';
-                page.style.transform = 'translateY(30px) rotate(1deg)';
-                page.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
-                observer.observe(page);
-            });
-
-            // Add random parchment aging effects
-            document.querySelectorAll('.manuscript-page').forEach(page => {
-                const aging = Math.random() * 0.1;
-                page.style.filter = `sepia(${aging}) contrast(${1 + aging * 0.2})`;
-            });
-
-            // Subtle marginalia hover effects
-            document.querySelectorAll('.marginalia-decoration').forEach(decoration => {
-                decoration.addEventListener('mouseenter', function() {
-                    this.style.transform += ' scale(1.1)';
-                    this.style.opacity = '0.9';
-                    this.style.transition = 'all 0.3s ease';
-                });
-                
-                decoration.addEventListener('mouseleave', function() {
-                    this.style.transform = this.style.transform.replace(' scale(1.1)', '');
-                    this.style.opacity = '0.7';
-                });
-            });
-
-            // Illuminated initial glow effect
-            const initial = document.querySelector('.illuminated-initial');
-            if (initial) {
-                setInterval(() => {
-                    initial.style.textShadow = `
-                        1px 1px 2px rgba(112, 66, 20, 0.3),
-                        0 0 ${8 + Math.random() * 3}px rgba(139, 69, 19, ${0.2 + Math.random() * 0.1})
-                    `;
-                }, 3000);
-            }
+        document.querySelectorAll(".tool-card").forEach((card) => {
+          observer.observe(card);
         });
+
+        // Add subtle hover effects to status indicators
+        document.querySelectorAll(".tool-status").forEach((status) => {
+          const card = status.closest(".tool-card");
+          card.addEventListener("mouseenter", () => {
+            status.style.transform = "scale(1.2)";
+            status.style.transition = "transform 0.3s ease";
+          });
+          card.addEventListener("mouseleave", () => {
+            status.style.transform = "scale(1)";
+          });
+        });
+      });
     </script>
-</body>
+  </body>
 </html>

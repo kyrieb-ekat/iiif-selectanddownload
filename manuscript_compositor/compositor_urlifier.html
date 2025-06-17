@@ -1,204 +1,1301 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Minimal Upload Test</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Manuscript Compositor - IIIF Research Tools</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Cinzel:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
+      /* Reset and Base Styles */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --primary-color: #8b5a3c;
+        --primary-dark: #6b4423;
+        --secondary-color: #5d4037;
+        --accent-color: #d4af37;
+        --bg-color: #f8f5f0;
+        --surface-color: #f0ead6;
+        --card-color: #fffffb;
+        --text-primary: #3d2914;
+        --text-secondary: #5d4037;
+        --border-color: #d2c4a8;
+        --border-accent: #8b5a3c;
+        --success-color: #558b2f;
+        --warning-color: #bf6f00;
+        --error-color: #c62828;
+        --radius-sm: 6px;
+        --radius-md: 10px;
+        --radius-lg: 14px;
+        --shadow-sm: 0 1px 3px rgba(61, 41, 20, 0.08);
+        --shadow-md: 0 4px 8px rgba(61, 41, 20, 0.12);
+        --shadow-lg: 0 8px 20px rgba(61, 41, 20, 0.15);
+      }
+
+      body {
+        font-family: "Crimson Text", serif;
+        background: linear-gradient(
+          135deg,
+          var(--bg-color) 0%,
+          var(--surface-color) 100%
+        );
+        background-attachment: fixed;
+        color: var(--text-primary);
+        line-height: 1.6;
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      /* Container and Layout */
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        position: relative;
+      }
+
+      .header {
+        text-align: center;
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 40px 32px;
+        margin-bottom: 32px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
+        position: relative;
+      }
+
+      .header::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(
+          90deg,
+          var(--primary-color),
+          var(--accent-color),
+          var(--primary-color)
+        );
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      }
+
+      .title {
+        font-family: "Cinzel", serif;
+        font-size: 2.8rem;
+        color: var(--text-primary);
+        margin-bottom: 16px;
+        font-weight: 600;
+      }
+
+      .title::after {
+        content: "";
+        position: absolute;
+        bottom: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 80px;
+        height: 3px;
+        background: var(--accent-color);
+        border-radius: 2px;
+      }
+
+      .subtitle {
+        font-family: "Cinzel", serif;
+        font-size: 1.3rem;
+        color: var(--primary-color);
+        font-style: italic;
+        margin-bottom: 20px;
+        font-weight: 400;
+      }
+
+      .description {
+        color: var(--text-secondary);
+        max-width: 700px;
+        margin: 0 auto;
+        font-size: 1.1rem;
+        line-height: 1.7;
+      }
+
+      /* Main Layout */
+      .main-layout {
+        display: grid;
+        grid-template-columns: 1fr 280px;
+        gap: 28px;
+        margin-bottom: 32px;
+      }
+
+      .main-content {
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 32px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
+      }
+
+      .sidebar {
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 24px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
+        height: fit-content;
+        position: sticky;
+        top: 24px;
+      }
+
+      /* Step Indicator */
+      .step-indicator {
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        color: var(--primary-color);
+        background: var(--surface-color);
+        padding: 16px 20px;
+        border-radius: var(--radius-md);
+        border-left: 4px solid var(--accent-color);
+        margin-bottom: 28px;
+        border: 1px solid var(--border-color);
+      }
+
+      /* File Upload */
+      .upload-area {
+        border: 2px dashed var(--border-accent);
+        border-radius: var(--radius-md);
+        padding: 40px;
+        text-align: center;
+        background: var(--surface-color);
+        margin-bottom: 28px;
+        transition: all 0.3s ease;
+        cursor: pointer;
+      }
+
+      .upload-area:hover {
+        border-color: var(--primary-color);
+        background: var(--card-color);
+      }
+
+      .upload-area.dragover {
+        border-color: var(--accent-color);
+        background: var(--card-color);
+        transform: scale(1.02);
+        box-shadow: var(--shadow-md);
+      }
+
+      .upload-area input[type="file"] {
+        display: none;
+      }
+
+      .upload-label {
+        font-family: "Cinzel", serif;
+        font-size: 1.3rem;
+        color: var(--primary-color);
+        cursor: pointer;
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+
+      .upload-hint {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        line-height: 1.5;
+      }
+
+      /* Manifest Info */
+      .manifest-info {
+        background: var(--surface-color);
+        border-radius: var(--radius-md);
+        padding: 20px;
+        margin-bottom: 28px;
+        border-left: 4px solid var(--primary-color);
+        border: 1px solid var(--border-color);
+      }
+
+      .manifest-title {
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 12px;
+        font-size: 1.2rem;
+      }
+
+      .manifest-details {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+      }
+
+      .manifest-details div {
+        margin-bottom: 4px;
+      }
+
+      /* Controls */
+      .controls {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 28px;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        background: linear-gradient(
+          135deg,
+          var(--primary-color),
+          var(--accent-color)
+        );
+        color: var(--card-color);
+        border: none;
+        padding: 12px 20px;
+        border-radius: var(--radius-md);
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 0.95rem;
+        border: 1px solid var(--border-accent);
+        letter-spacing: 0.3px;
+      }
+
+      .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        filter: brightness(1.1);
+      }
+
+      .btn-secondary {
+        background: var(--surface-color);
+        color: var(--text-primary);
+        border: 2px solid var(--border-color);
+      }
+
+      .btn-secondary:hover {
+        background: var(--border-color);
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent-color), #e6c452);
+        padding: 16px 32px;
+        font-size: 1.1rem;
+      }
+
+      .btn:disabled {
+        background: #999;
+        cursor: not-allowed;
+        transform: none;
+        filter: none;
+      }
+
+      /* Canvas Grid */
+      .canvas-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 20px;
+        margin-bottom: 28px;
+      }
+
+      .canvas-item {
+        background: var(--card-color);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 2px solid var(--border-color);
+        box-shadow: var(--shadow-sm);
+      }
+
+      .canvas-item:hover {
+        transform: translateY(-4px);
+        box-shadow: var(--shadow-md);
+        border-color: var(--border-accent);
+      }
+
+      .canvas-item.selected {
+        border-color: var(--accent-color);
+        background: var(--surface-color);
+        box-shadow: var(--shadow-md);
+      }
+
+      .canvas-thumbnail {
+        width: 100%;
+        height: 120px;
+        background: var(--surface-color);
+        border-radius: var(--radius-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 12px;
+        font-size: 2rem;
+        color: var(--primary-color);
+        border: 1px solid var(--border-color);
+      }
+
+      .canvas-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: var(--radius-sm);
+      }
+
+      .canvas-label {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      /* Metadata Editor */
+      .metadata-editor {
+        background: var(--surface-color);
+        border-radius: var(--radius-md);
+        padding: 24px;
+        margin-bottom: 28px;
+        border: 1px solid var(--border-color);
+      }
+
+      .form-field {
+        margin-bottom: 20px;
+      }
+
+      .form-field label {
+        display: block;
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        font-size: 1rem;
+      }
+
+      .form-field input,
+      .form-field textarea {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid var(--border-color);
+        border-radius: var(--radius-md);
+        font-family: "Crimson Text", serif;
+        background: var(--card-color);
+        color: var(--text-primary);
+        font-size: 1rem;
+        transition: all 0.3s ease;
+      }
+
+      .form-field input:focus,
+      .form-field textarea:focus {
+        outline: none;
+        border-color: var(--accent-color);
+        background: var(--card-color);
+        box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+      }
+
+      .form-field textarea {
+        height: 100px;
+        resize: vertical;
+      }
+
+      /* Sidebar Sections */
+      .sidebar-section {
+        margin-bottom: 24px;
+      }
+
+      .sidebar-section:last-child {
+        margin-bottom: 0;
+      }
+
+      .sidebar-title {
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--accent-color);
+        font-size: 1rem;
+      }
+
+      .summary-box {
+        background: var(--surface-color);
+        padding: 16px;
+        border-radius: var(--radius-sm);
+        margin-bottom: 16px;
+        border: 1px solid var(--border-color);
+      }
+
+      .summary-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+      }
+
+      .summary-item:last-child {
+        margin-bottom: 0;
+        font-weight: 600;
+        color: var(--text-primary);
+        border-top: 1px solid var(--border-color);
+        padding-top: 8px;
+        margin-top: 8px;
+      }
+
+      .progress-list {
+        list-style: none;
+        padding: 0;
+      }
+
+      .progress-item {
+        font-size: 0.9rem;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        opacity: 0.5;
+        transition: all 0.3s ease;
+      }
+
+      .progress-item.active {
+        opacity: 1;
+        color: var(--primary-color);
+        font-weight: 600;
+      }
+
+      .progress-item.complete {
+        opacity: 1;
+        color: var(--success-color);
+        text-decoration: line-through;
+      }
+
+      .quick-action-btn {
+        width: 100%;
+        margin-bottom: 12px;
+        padding: 12px 16px;
+        background: var(--surface-color);
+        border: 2px solid var(--border-color);
+        color: var(--text-primary);
+        font-family: "Cinzel", serif;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+
+      .quick-action-btn:hover {
+        background: var(--primary-color);
+        color: var(--card-color);
+        border-color: var(--primary-color);
+      }
+
+      /* Status Messages */
+      #statusMessage {
+        margin-top: 1rem;
+        padding: 12px;
+        border-radius: var(--radius-md);
+        font-weight: 600;
+        border: 1px solid;
+        display: none; /* Hidden by default */
+      }
+
+      #uploadStatus {
+        padding: 12px;
+        border-radius: var(--radius-md);
+        font-weight: 600;
+        border: 1px solid;
+        display: none; /* Hidden by default */
+        margin-top: 1rem;
+      }
+
+      .status-success {
+        background: #d4edda;
+        color: #155724;
+        border-color: #c3e6cb;
+        display: block !important;
+      }
+
+      .status-error {
+        background: #f8d7da;
+        color: #721c24;
+        border-color: #f5c6cb;
+        display: block !important;
+      }
+
+      .status-info {
+        background: var(--surface-color);
+        color: var(--text-secondary);
+        border-color: var(--border-accent);
+        display: block !important;
+      }
+
+      /* Hosting Guide */
+      .hosting-guide {
+        background: var(--card-color);
+        border-radius: var(--radius-lg);
+        padding: 48px;
+        margin-top: 48px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow-md);
+        position: relative;
+      }
+
+      .hosting-guide::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(
+          90deg,
+          var(--accent-color),
+          var(--primary-color),
+          var(--accent-color)
+        );
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      }
+
+      .hosting-title {
+        font-family: "Cinzel", serif;
+        font-size: 2.2rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 32px;
+        text-align: center;
+      }
+
+      .hosting-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 24px;
+      }
+
+      .hosting-option {
+        background: var(--surface-color);
+        border-radius: var(--radius-md);
+        padding: 24px;
+        border-left: 4px solid var(--primary-color);
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+      }
+
+      .hosting-option:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-md);
+        border-left-color: var(--accent-color);
+      }
+
+      .hosting-option h3 {
+        font-family: "Cinzel", serif;
+        color: var(--primary-color);
+        margin-bottom: 16px;
+        font-size: 1.2rem;
+        font-weight: 600;
+      }
+
+      .hosting-option p {
+        color: var(--text-secondary);
+        margin-bottom: 16px;
+        font-size: 1rem;
+        line-height: 1.6;
+      }
+
+      .hosting-option ul {
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 16px;
+      }
+
+      .hosting-option li {
+        padding: 4px 0;
+        color: var(--text-secondary);
+        position: relative;
+        padding-left: 20px;
+        font-size: 0.9rem;
+      }
+
+      .hosting-option li::before {
+        content: "•";
+        position: absolute;
+        left: 0;
+        color: var(--accent-color);
+        font-weight: bold;
+        font-size: 1.2rem;
+      }
+
+      .hosting-option p:last-child {
+        margin-bottom: 0;
+        font-weight: 600;
+        color: var(--text-primary);
+        padding-top: 12px;
+        border-top: 1px solid var(--border-color);
+      }
+
+      /* Hidden sections */
+      .hidden {
+        display: none;
+      }
+
+      /* Responsive Design */
+      @media (max-width: 768px) {
         body {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 50px auto;
-            padding: 20px;
+          padding: 16px;
         }
-        
-        .upload-area {
-            border: 3px dashed #007cba;
-            border-radius: 10px;
-            padding: 40px;
-            text-align: center;
-            background: #f0f8ff;
-            margin: 20px 0;
-            cursor: pointer;
-            transition: all 0.3s ease;
+
+        .main-layout {
+          grid-template-columns: 1fr;
+          gap: 20px;
         }
-        
-        .upload-area:hover {
-            border-color: #005a87;
-            background: #e6f3ff;
+
+        .controls {
+          flex-direction: column;
         }
-        
-        .upload-area.dragover {
-            border-color: #ff6b35;
-            background: #fff0e6;
-            transform: scale(1.02);
+
+        .btn {
+          width: 100%;
+          margin-bottom: 8px;
         }
-        
-        #fileInput {
-            display: none;
+
+        .canvas-grid {
+          grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
         }
-        
-        #status {
-            margin-top: 20px;
-            padding: 10px;
-            border-radius: 5px;
-            background: #f5f5f5;
-            min-height: 100px;
-            font-family: monospace;
-            font-size: 12px;
-            overflow-y: auto;
+
+        .hosting-grid {
+          grid-template-columns: 1fr;
         }
-        
-        .status-line {
-            margin: 2px 0;
-            padding: 2px 5px;
+
+        .title {
+          font-size: 2.2rem;
         }
-        
-        .success { background: #d4edda; color: #155724; }
-        .error { background: #f8d7da; color: #721c24; }
-        .info { background: #d1ecf1; color: #0c5460; }
+
+        .header {
+          padding: 28px 20px;
+        }
+
+        .main-content,
+        .sidebar {
+          padding: 20px;
+        }
+
+        .hosting-guide {
+          padding: 32px 20px;
+        }
+      }
     </style>
-</head>
-<body>
-    <h1>🧪 Minimal Upload Test</h1>
-    <p>This is a stripped-down test to see if basic file upload works in your browser.</p>
-    
-    <div class="upload-area" id="uploadArea">
-        <input type="file" id="fileInput" accept="*">
-        <h3>📁 Click here or drag a file</h3>
-        <p>Any file type accepted</p>
+  </head>
+  <body>
+    <!-- Left Sidebar -->
+    <div id="sidebar">
+      <ul>
+        <li><a href="../index.html">🏠 Home</a></li>
+        <!-- <li><a href="#instructions">📋 Instructions</a></li>
+            <li><a href="#manifest">📄 Enter Manifest</a></li> -->
+      </ul>
     </div>
-    
-    <div id="status">
-        <div class="status-line info">Waiting for JavaScript to load...</div>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1 class="title">Manuscript Compositor</h1>
+        <p class="subtitle">
+          Craft Bespoke IIIF Manifests from Existing Collections
+        </p>
+        <p class="description">
+          Select and compose your own manuscript from any IIIF collection.
+          Perfect for creating exhibition manifests, research collections, or
+          curated selections from larger digital archives.
+        </p>
+      </div>
+
+      <div class="main-layout">
+        <div class="main-content">
+          <div class="step-indicator" id="currentStep">
+            Step 1: Load Your Source Manifest
+          </div>
+
+          <div id="uploadSection">
+            <div class="upload-area" id="uploadArea">
+              <input
+                type="file"
+                id="fileInput"
+                accept="application/json,.json"
+              />
+              <label for="fileInput" class="upload-label"
+                >📜 Choose IIIF Manifest</label
+              >
+              <p class="upload-hint">
+                Drop a IIIF manifest JSON file here, or click to browse<br />
+              </p>
+            </div>
+            <div id="uploadStatus"></div>
+          </div>
+
+          <div id="manifestSection" class="hidden">
+            <div class="manifest-info">
+              <h3 class="manifest-title" id="manifestTitle">
+                Manuscript Title
+              </h3>
+              <div class="manifest-details">
+                <div>Total Images: <span id="totalImages">0</span></div>
+                <div>
+                  Attribution: <span id="manifestAttribution">Unknown</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="controls">
+              <button class="btn btn-secondary" onclick="selectAll()">
+                Select All
+              </button>
+              <button class="btn btn-secondary" onclick="selectNone()">
+                Select None
+              </button>
+              <button class="btn btn-secondary" onclick="selectRange()">
+                Select Range
+              </button>
+            </div>
+
+            <div class="canvas-grid" id="canvasGrid"></div>
+          </div>
+
+          <div id="metadataSection" class="hidden">
+            <h3
+              style="
+                font-family: 'Cinzel', serif;
+                color: var(--text-primary);
+                margin-bottom: 20px;
+                font-size: 1.4rem;
+              "
+            >
+              Customize Your Manuscript
+            </h3>
+            <div class="metadata-editor">
+              <div class="form-field">
+                <label for="newTitle">Title</label>
+                <input
+                  type="text"
+                  id="newTitle"
+                  placeholder="Enter manuscript title"
+                />
+              </div>
+              <div class="form-field">
+                <label for="newDescription">Description</label>
+                <textarea
+                  id="newDescription"
+                  placeholder="Describe your curated selection"
+                ></textarea>
+              </div>
+              <div class="form-field">
+                <label for="newAttribution">Attribution</label>
+                <input
+                  type="text"
+                  id="newAttribution"
+                  placeholder="Source attribution"
+                />
+              </div>
+              <div class="form-field">
+                <label for="manifestId">Manifest ID/URL</label>
+                <input
+                  type="text"
+                  id="manifestId"
+                  placeholder="https://your-domain.com/manifest.json"
+                />
+              </div>
+            </div>
+
+            <div style="text-align: center">
+              <button
+                class="btn btn-primary"
+                id="generateButton"
+                onclick="generateManifest()"
+              >
+                🏛️ Compose Manuscript
+              </button>
+              <div id="statusMessage"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar">
+          <div class="sidebar-section">
+            <h3 class="sidebar-title">Selection Summary</h3>
+            <div class="summary-box">
+              <div class="summary-item">
+                <span>Images Selected:</span>
+                <span id="selectedCount">0</span>
+              </div>
+              <div class="summary-item">
+                <span>Total Available:</span>
+                <span id="totalCount">0</span>
+              </div>
+              <div class="summary-item">
+                <span>Manifest Size:</span>
+                <span id="estimatedSize">~0 KB</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h3 class="sidebar-title">Quick Actions</h3>
+            <button class="btn quick-action-btn" onclick="previewSelection()">
+              👁️ Preview Selection
+            </button>
+            <button class="btn quick-action-btn" onclick="resetWorkflow()">
+              🔄 Start Over
+            </button>
+          </div>
+
+          <div class="sidebar-section">
+            <h3 class="sidebar-title">Progress</h3>
+            <ul class="progress-list">
+              <li class="progress-item" id="progress1">1. Load manifest ⏳</li>
+              <li class="progress-item" id="progress2">2. Select images ⏳</li>
+              <li class="progress-item" id="progress3">3. Edit metadata ⏳</li>
+              <li class="progress-item" id="progress4">
+                4. Generate manifest ⏳
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="hosting-guide">
+        <h2 class="hosting-title">What's Next: Hosting Your Manifest</h2>
+        <div class="hosting-grid">
+          <div class="hosting-option">
+            <h3>📁 Simple File Hosting</h3>
+            <p>For quick testing and personal use:</p>
+            <ul>
+              <li>Upload manifest.json to any web server</li>
+              <li>GitHub Pages (free and easy)</li>
+              <li>Dropbox/Google Drive public links</li>
+              <li>Your institutional web space</li>
+            </ul>
+            <p>
+              <strong>Best for:</strong> Testing, personal research, small
+              collections
+            </p>
+          </div>
+
+          <div class="hosting-option">
+            <h3>🏛️ Institutional Repository</h3>
+            <p>For official collections and permanent access:</p>
+            <ul>
+              <li>Digital library platforms (Samvera, Islandora)</li>
+              <li>IIIF-compliant repository systems</li>
+              <li>Institutional digital collections</li>
+              <li>Archive.org or similar preservation services</li>
+            </ul>
+            <p>
+              <strong>Best for:</strong> Official collections, long-term
+              preservation
+            </p>
+          </div>
+
+          <div class="hosting-option">
+            <h3>🚀 IIIF Hosting Services</h3>
+            <p>Specialized platforms for IIIF content:</p>
+            <ul>
+              <li>IIIF Hosting (iiifhosting.com)</li>
+              <li>Canopy IIIF (Northwestern University)</li>
+              <li>Mirador viewer hosting services</li>
+              <li>Cultural heritage cloud platforms</li>
+            </ul>
+            <p>
+              <strong>Best for:</strong> Professional presentations, exhibitions
+            </p>
+          </div>
+
+          <div class="hosting-option">
+            <h3>✅ Essential Requirements</h3>
+            <p>Whatever option you choose, ensure:</p>
+            <ul>
+              <li>CORS headers enabled for cross-origin access</li>
+              <li>HTTPS support (required by most viewers)</li>
+              <li>Content-Type: application/json</li>
+              <li>Reliable uptime for your audience</li>
+            </ul>
+            <p>
+              <strong>Pro tip:</strong> Test your manifest URL in a IIIF viewer
+              before sharing!
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script>
-        // Test 1: Basic console log
-        console.log('🟢 JavaScript is running!');
-        
-        // Test 2: Add status message
-        function addStatus(message, type = 'info') {
-            console.log('Status:', message);
-            const status = document.getElementById('status');
-            const line = document.createElement('div');
-            line.className = `status-line ${type}`;
-            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            status.appendChild(line);
-            status.scrollTop = status.scrollHeight;
+      // State variables
+      let currentManifest = null;
+      let selectedCanvases = new Set();
+      let allCanvases = [];
+
+      // DOM Ready
+      document.addEventListener("DOMContentLoaded", init);
+
+      function init() {
+        // Get elements
+        const fileInput = document.getElementById("fileInput");
+        const uploadArea = document.getElementById("uploadArea");
+
+        // Check if essential elements exist
+        if (!fileInput || !uploadArea) {
+          console.error("Core upload elements not found!");
+          return;
         }
-        
-        // Test 3: DOM ready check
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', init);
-            addStatus('DOM still loading, waiting...', 'info');
+
+        // Event Listeners
+        uploadArea.addEventListener("click", () => fileInput.click());
+        fileInput.addEventListener("change", handleFileSelect);
+
+        // Drag and Drop Listeners
+        ["dragenter", "dragover", "dragleave", "drop"].forEach((eventName) => {
+          uploadArea.addEventListener(eventName, preventDefaults, false);
+          document.body.addEventListener(eventName, preventDefaults, false);
+        });
+        ["dragenter", "dragover"].forEach((eventName) => {
+          uploadArea.addEventListener(
+            eventName,
+            () => uploadArea.classList.add("dragover"),
+            false
+          );
+        });
+        ["dragleave", "drop"].forEach((eventName) => {
+          uploadArea.addEventListener(
+            eventName,
+            () => uploadArea.classList.remove("dragover"),
+            false
+          );
+        });
+        uploadArea.addEventListener("drop", handleDrop, false);
+
+        updateProgress(1); // Set initial progress
+        console.log("Compositor initialized.");
+      }
+
+      // --- Core Application Logic ---
+
+      function processFile(file) {
+        if (!file || !file.type.match("json.*")) {
+          showStatus("Please select a valid JSON file.", "error");
+          return;
+        }
+        showStatus(`📜 Examining: ${file.name}`, "info");
+
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          try {
+            const json = JSON.parse(e.target.result);
+            processManifest(json);
+          } catch (error) {
+            showStatus(`Manifest format error: ${error.message}`, "error");
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      function processManifest(manifest) {
+        currentManifest = manifest;
+        // IIIF v2 (sequences) and v3 (items) support
+        if (
+          manifest.sequences &&
+          manifest.sequences[0] &&
+          manifest.sequences[0].canvases
+        ) {
+          allCanvases = manifest.sequences[0].canvases;
+        } else if (manifest.items) {
+          allCanvases = manifest.items.filter((item) => item.type === "Canvas");
         } else {
-            init();
+          showStatus("Could not find any canvases in the manifest.", "error");
+          return;
         }
-        
-        function init() {
-            console.log('🟢 DOM ready, initializing...');
-            addStatus('DOM ready, initializing...', 'success');
-            
-            // Test 4: Get elements
-            const uploadArea = document.getElementById('uploadArea');
-            const fileInput = document.getElementById('fileInput');
-            
-            if (!uploadArea || !fileInput) {
-                console.error('❌ Elements not found!');
-                addStatus('CRITICAL ERROR: Elements not found!', 'error');
-                return;
+
+        if (allCanvases.length === 0) {
+          showStatus("No canvases found in manifest.", "warning");
+        }
+
+        document.getElementById("uploadSection").classList.add("hidden");
+        document.getElementById("manifestSection").classList.remove("hidden");
+        document.getElementById("metadataSection").classList.remove("hidden");
+
+        updateUI();
+        createCanvasGrid();
+        updateProgress(2);
+        showStatus(
+          `📖 Manuscript loaded with ${allCanvases.length} images.`,
+          "success"
+        );
+      }
+
+      window.generateManifest = function () {
+        if (selectedCanvases.size === 0) {
+          showStatus("Please select images before generating.", "error", true);
+          return;
+        }
+        updateProgress(4);
+
+        const title =
+          document.getElementById("newTitle").value || "Curated Manuscript";
+        const selectedArray = Array.from(selectedCanvases).sort(
+          (a, b) => a - b
+        );
+
+        const newManifest = {
+          "@context": "http://iiif.io/api/presentation/3/context.json",
+          id:
+            document.getElementById("manifestId").value ||
+            "https://example.com/manifest.json",
+          type: "Manifest",
+          label: { en: [title] },
+          items: selectedArray.map((originalIndex, newIndex) => {
+            const originalCanvas = allCanvases[originalIndex];
+            return {
+              ...originalCanvas, // Keep original canvas data
+              id: `${
+                document.getElementById("manifestId").value ||
+                "https://example.com/manifest.json"
+              }/canvas/${newIndex}`,
+              label: originalCanvas.label || { en: [`Page ${newIndex + 1}`] },
+            };
+          }),
+        };
+
+        const description = document.getElementById("newDescription").value;
+        if (description) newManifest.summary = { en: [description] };
+
+        const attribution = document.getElementById("newAttribution").value;
+        if (attribution)
+          newManifest.requiredStatement = {
+            label: { en: ["Attribution"] },
+            value: { en: [attribution] },
+          };
+
+        downloadJSON(
+          newManifest,
+          `${title.replace(/[^a-z0-9]/gi, "_").toLowerCase()}_manifest.json`
+        );
+        showStatus("🎉 Manifest composed and downloaded!", "success", true);
+        document.getElementById("progress4").classList.add("complete");
+      };
+
+      // --- UI and State Management ---
+
+      function updateUI() {
+        const title =
+          getTextValue(currentManifest.label) || "Untitled Manuscript";
+        const attribution =
+          getTextValue(currentManifest.attribution) || "Unknown";
+
+        document.getElementById("manifestTitle").textContent = title;
+        document.getElementById("totalImages").textContent = allCanvases.length;
+        document.getElementById("manifestAttribution").textContent =
+          attribution;
+        document.getElementById("newTitle").value = title;
+        document.getElementById("newAttribution").value = attribution;
+
+        updateSummary();
+      }
+
+      function updateSummary() {
+        document.getElementById("selectedCount").textContent =
+          selectedCanvases.size;
+        document.getElementById("totalCount").textContent = allCanvases.length;
+        const size = Math.round(
+          (JSON.stringify(currentManifest).length / 1024) *
+            (selectedCanvases.size / allCanvases.length || 0)
+        );
+        document.getElementById("estimatedSize").textContent = `~${size} KB`;
+
+        if (selectedCanvases.size > 0) {
+          updateProgress(3);
+        }
+      }
+
+      function createCanvasGrid() {
+        const grid = document.getElementById("canvasGrid");
+        grid.innerHTML = "";
+        allCanvases.forEach((canvas, index) => {
+          const div = document.createElement("div");
+          div.className = "canvas-item";
+          div.dataset.index = index;
+
+          const thumb = document.createElement("div");
+          thumb.className = "canvas-thumbnail";
+          // Try to get thumbnail URL robustly
+          let thumbUrl = "";
+          if (canvas.thumbnail) {
+            if (Array.isArray(canvas.thumbnail)) {
+              thumbUrl =
+                canvas.thumbnail[0]?.id || canvas.thumbnail[0]?.["@id"];
+            } else if (typeof canvas.thumbnail === "object") {
+              thumbUrl = canvas.thumbnail.id || canvas.thumbnail["@id"];
+            } else {
+              thumbUrl = canvas.thumbnail;
             }
-            
-            addStatus('Elements found successfully', 'success');
-            
-            // Test 5: Click handler
-            uploadArea.addEventListener('click', function() {
-                console.log('🟢 Upload area clicked');
-                addStatus('Upload area clicked - opening file dialog', 'info');
-                fileInput.click();
-            });
-            
-            // Test 6: File input change
-            fileInput.addEventListener('change', function(e) {
-                console.log('🟢 File selected:', e.target.files);
-                if (e.target.files.length > 0) {
-                    const file = e.target.files[0];
-                    addStatus(`File selected: ${file.name} (${file.size} bytes)`, 'success');
-                    processFile(file);
-                } else {
-                    addStatus('No file selected', 'error');
-                }
-            });
-            
-            // Test 7: Drag and drop
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🟢 Drag event:', eventName);
-                });
-            });
-            
-            uploadArea.addEventListener('dragenter', function() {
-                this.classList.add('dragover');
-                addStatus('File dragged over upload area', 'info');
-            });
-            
-            uploadArea.addEventListener('dragleave', function() {
-                this.classList.remove('dragover');
-            });
-            
-            uploadArea.addEventListener('drop', function(e) {
-                this.classList.remove('dragover');
-                const files = e.dataTransfer.files;
-                console.log('🟢 Files dropped:', files);
-                addStatus(`Files dropped: ${files.length} file(s)`, 'success');
-                
-                if (files.length > 0) {
-                    processFile(files[0]);
-                }
-            });
-            
-            addStatus('All event handlers attached successfully', 'success');
-            addStatus('🚀 Ready! Try clicking or dragging a file.', 'info');
+          }
+          if (thumbUrl) {
+            const img = document.createElement("img");
+            img.src = thumbUrl.replace(/^http:/, "https:"); // Force HTTPS
+            img.alt = `Thumbnail for ${getTextValue(canvas.label)}`;
+            img.loading = "lazy";
+            img.onerror = () => (thumb.innerHTML = "📜");
+            thumb.appendChild(img);
+          } else {
+            thumb.innerHTML = "📜";
+          }
+
+          const label = document.createElement("div");
+          label.className = "canvas-label";
+          label.textContent =
+            getTextValue(canvas.label) || `Folio ${index + 1}`;
+
+          div.appendChild(thumb);
+          div.appendChild(label);
+          div.addEventListener("click", () => toggleCanvas(index));
+          grid.appendChild(div);
+        });
+      }
+
+      function toggleCanvas(index) {
+        const div = document.querySelector(
+          `.canvas-item[data-index='${index}']`
+        );
+        if (selectedCanvases.has(index)) {
+          selectedCanvases.delete(index);
+          div.classList.remove("selected");
+        } else {
+          selectedCanvases.add(index);
+          div.classList.add("selected");
         }
-        
-        function processFile(file) {
-            console.log('🟢 Processing file:', file);
-            addStatus(`Processing: ${file.name}`, 'info');
-            addStatus(`File type: ${file.type}`, 'info');
-            addStatus(`File size: ${file.size} bytes`, 'info');
-            
-            const reader = new FileReader();
-            
-            reader.onload = function(e) {
-                const content = e.target.result;
-                addStatus(`File read successfully (${content.length} characters)`, 'success');
-                
-                // Try to parse as JSON if it looks like JSON
-                if (file.name.toLowerCase().includes('.json') || content.trim().startsWith('{')) {
-                    try {
-                        const json = JSON.parse(content);
-                        addStatus('✅ Valid JSON file!', 'success');
-                        addStatus(`JSON keys: ${Object.keys(json).slice(0, 5).join(', ')}...`, 'info');
-                        
-                        // Check for IIIF-like structure
-                        if (json['@context'] || json.type || json['@type']) {
-                            addStatus('🏛️ Looks like a IIIF manifest!', 'success');
-                        }
-                    } catch (error) {
-                        addStatus(`JSON parse error: ${error.message}`, 'error');
-                    }
-                }
-            };
-            
-            reader.onerror = function() {
-                addStatus('Error reading file', 'error');
-            };
-            
-            reader.readAsText(file);
+        updateSummary();
+      }
+
+      function updateProgress(step) {
+        for (let i = 1; i <= 4; i++) {
+          const item = document.getElementById(`progress${i}`);
+          if (item) {
+            item.classList.remove("active", "complete");
+            if (i < step) {
+              item.classList.add("complete");
+            } else if (i === step) {
+              item.classList.add("active");
+            }
+          }
         }
+        const stepText = document.getElementById(`progress${step}`).innerText;
+        document.getElementById("currentStep").textContent = `Step ${stepText}`;
+      }
+
+      // --- Button Actions ---
+
+      window.selectAll = function () {
+        allCanvases.forEach((_, i) => selectedCanvases.add(i));
+        document
+          .querySelectorAll(".canvas-item")
+          .forEach((div) => div.classList.add("selected"));
+        updateSummary();
+      };
+      window.selectNone = function () {
+        selectedCanvases.clear();
+        document
+          .querySelectorAll(".canvas-item")
+          .forEach((div) => div.classList.remove("selected"));
+        updateSummary();
+      };
+      window.selectRange = function () {
+        const start = parseInt(prompt("Start page number:"), 10);
+        const end = parseInt(prompt("End page number:"), 10);
+        if (!isNaN(start) && !isNaN(end)) {
+          for (let i = start - 1; i < end; i++) {
+            if (i >= 0 && i < allCanvases.length) selectedCanvases.add(i);
+          }
+          document
+            .querySelectorAll(".canvas-item")
+            .forEach((d, i) =>
+              d.classList.toggle("selected", selectedCanvases.has(i))
+            );
+          updateSummary();
+        }
+      };
+      window.previewSelection = function () {
+        if (selectedCanvases.size === 0) {
+          alert("No images selected to preview.");
+          return;
+        }
+        const selectedLabels = Array.from(selectedCanvases)
+          .sort((a, b) => a - b)
+          .map(
+            (index) =>
+              getTextValue(allCanvases[index].label) || `Folio ${index + 1}`
+          );
+        alert(
+          `Selected ${selectedCanvases.size} images:\n\n- ${selectedLabels
+            .slice(0, 15)
+            .join("\n- ")}` + (selectedLabels.length > 15 ? "\n..." : "")
+        );
+      };
+      window.resetWorkflow = function () {
+        currentManifest = null;
+        selectedCanvases.clear();
+        allCanvases = [];
+        document.getElementById("uploadSection").classList.remove("hidden");
+        document.getElementById("manifestSection").classList.add("hidden");
+        document.getElementById("metadataSection").classList.add("hidden");
+        document.getElementById("canvasGrid").innerHTML = "";
+        document.getElementById("fileInput").value = "";
+        showStatus(""); // Clear status
+        updateSummary();
+        updateProgress(1);
+      };
+
+      // --- Helpers ---
+
+      function handleFileSelect(e) {
+        if (e.target.files.length) processFile(e.target.files[0]);
+      }
+      function handleDrop(e) {
+        if (e.dataTransfer.files.length) processFile(e.dataTransfer.files[0]);
+      }
+      function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      function getTextValue(textObj) {
+        if (!textObj) return "";
+        if (typeof textObj === "string") return textObj;
+        if (Array.isArray(textObj)) return textObj.map(getTextValue).join(", ");
+        if (textObj["@value"]) return textObj["@value"];
+        if (textObj.en)
+          return Array.isArray(textObj.en) ? textObj.en.join(", ") : textObj.en;
+        return Object.values(textObj).flat().join(", ");
+      }
+      function downloadJSON(data, filename) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      function showStatus(message, type = "info", isActionStatus = false) {
+        const statusEl = isActionStatus
+          ? document.getElementById("statusMessage")
+          : document.getElementById("uploadStatus");
+        if (!statusEl) return;
+        if (!message) {
+          statusEl.className = "";
+          statusEl.textContent = "";
+          return;
+        }
+        statusEl.className = `status-${type}`;
+        statusEl.textContent = message;
+      }
     </script>
-</body>
+  </body>
 </html>
