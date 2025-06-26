@@ -1,15 +1,6 @@
 var images = []; // Stores image data for display and download
 
 // --- Core Function: Get and Display Manifest ---
-var images = []; // Stores image data for display and download
-
-// --- Core Function: Get and Display Manifest ---
-var images = []; // Stores image data for display and download
-
-// --- Core Function: Get and Display Manifest ---
-var images = []; // Stores image data for display and download
-
-// --- Core Function: Get and Display Manifest ---
 async function getManifest() {
   var url = document.getElementById("url").value;
   if (!url) {
@@ -35,6 +26,18 @@ async function getManifest() {
     console.log("Manifest loaded successfully:", manifest);
     document.getElementById("img-container").innerHTML = ""; // Clear previous images
     images = []; // Reset images array
+
+        function buildProxyUrl(iiifBase) {
+      // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
+      const arkMatch  = iiifBase.match(/ark:\/([^/]+\/[^/]+)/); // 12148/btv1b55010551d
+      const pageMatch = iiifBase.match(/\/f(\d+)/);             // 39
+      if (arkMatch && pageMatch) {
+        const ark  = encodeURIComponent(arkMatch[1]);
+        const page = pageMatch[1];
+        return `/download?ark=${ark}&f=${page}&size=full`;
+      }
+      return null;   // not a Gallica IIIF URL → fall back to direct
+    }
 
     let canvases = [];
     let isIIIFP3 = false;
@@ -70,6 +73,22 @@ async function getManifest() {
       return;
     }
 
+    // Check if this is a Gallica manifest and show/hide the checkbox
+    const isGallicaManifest = url.includes("gallica.bnf.fr") || 
+                              canvases.some(canvas => {
+                                const hasGallicaUrl = JSON.stringify(canvas).includes("gallica.bnf.fr");
+                                return hasGallicaUrl;
+                              });
+    
+    const gallicaContainer = document.getElementById("gallicaContainer");
+    if (isGallicaManifest) {
+      gallicaContainer.style.display = "block";
+      document.getElementById("gallicaCheckbox").checked = true;
+    } else {
+      gallicaContainer.style.display = "none";
+      document.getElementById("gallicaCheckbox").checked = false;
+    }
+
     // --- Process Each Canvas ---
     canvases.forEach((canvas, index) => {
       console.log("Processing canvas:", canvas);
@@ -77,6 +96,12 @@ async function getManifest() {
       let fullImageUrlBase = "";
       let imageLabel = he.decode(canvas.label || `Image ${index + 1}`);
 
+      // Debug: Log the raw canvas structure
+      console.log(`Canvas ${index} structure:`, {
+        label: canvas.label,
+        images: canvas.images,
+        items: canvas.items,
+      });
       // --- Extract Image URLs based on IIIF Version and Fallbacks ---
       if (isIIIFP3) {
         // --- Try IIIF Presentation 3.0 parsing first ---
@@ -115,7 +140,6 @@ async function getManifest() {
         }
 
         // --- FALLBACK for P3 manifests that embed P2-style images array ---
-        // If no image URL found with P3 parsing, try P2 parsing within this canvas
         if (!thumbnailUrl) {
           console.log(
             "P3 parsing failed for canvas, attempting P2 fallback:",
@@ -160,18 +184,47 @@ async function getManifest() {
         return; // Skip this canvas if no displayable image URL found
       }
 
+      // Determine download URL (full resolution)
+      let downloadUrl = fullImageUrlBase;
+      if (
+        fullImageUrlBase &&
+        (fullImageUrlBase.includes("/iiif/image/") ||
+          fullImageUrlBase.match(/\/images\/.+\/?$/) ||
+          fullImageUrlBase.match(/\/loris\/.+$/) ||
+          fullImageUrlBase.includes("iiifimage") ||
+          fullImageUrlBase.includes("gallica.bnf.fr/iiif"))
+      ) {
+        // Try different IIIF Image API parameters based on institution
+        if (
+          fullImageUrlBase.includes("vatlib") ||
+          fullImageUrlBase.includes("digi.vatlib")
+        ) {
+          // Vatican Library uses specific parameters: /full/full/0/native.jpg
+          downloadUrl = `${fullImageUrlBase}/full/full/0/native.jpg`;
+        } else if (fullImageUrlBase.includes("gallica.bnf.fr")) {
+          // Gallica (French National Library) uses: /full/full/0/native.jpg
+          downloadUrl = `${fullImageUrlBase}/full/full/0/native.jpg`;
+        } else if (fullImageUrlBase.includes("fragmentarium")) {
+          // Fragmentarium might need different parameters
+          downloadUrl = `${fullImageUrlBase}/full/full/0/default.jpg`;
+        } else {
+          downloadUrl = `${fullImageUrlBase}/full/max/0/default.jpg`;
+        }
+      }
+
+      console.log(`Canvas ${index}: fullImageUrlBase = ${fullImageUrlBase}`);
+      console.log(`Canvas ${index}: downloadUrl = ${downloadUrl}`);
       // Standardize the info URL for the service (if an Image Service was found)
       const isIIIFImageService =
         fullImageUrlBase &&
         (fullImageUrlBase.includes("/iiif/image/") ||
-          fullImageUrlBase.match(/\/images\/.+\/?$/) ||
-          fullImageUrlBase.match(/\/iiif\/[0-9]\/?$/));
+          fullImageUrlBase.match(/\/images\/.+\/?$/));
       var infoUrl = isIIIFImageService ? `${fullImageUrlBase}/info.json` : null;
+      const proxyUrl = buildProxyUrl(fullImageUrlBase); 
 
-      // Store image data
       images.push({
-        thumbnail: thumbnailUrl,
-        fullImageApiBase: fullImageUrlBase,
+        url: downloadUrl,       // original remote image
+        proxy: proxyUrl,        // same image via your Flask proxy
         info: infoUrl,
         label: imageLabel,
       });
@@ -210,7 +263,7 @@ async function getManifest() {
       labelText.style.fontSize = "1.1rem";
 
       var apiLink = document.createElement("p");
-      apiLink.innerHTML = `<strong>Image API Base:</strong> <a href="${fullImageUrlBase}" target="_blank" rel="noopener noreferrer">${fullImageUrlBase.substring(
+      apiLink.innerHTML = `<strong>Download URL:</strong> <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer">${downloadUrl.substring(
         0,
         40
       )}...</a>`;
@@ -255,14 +308,13 @@ async function getManifest() {
 }
 
 // --- Utility Functions ---
-
 function selectAll() {
   var checkboxes = document.querySelectorAll('input[type="checkbox"]');
   var allChecked = Array.from(checkboxes).every((checkbox) => checkbox.checked);
   checkboxes.forEach((checkbox) => (checkbox.checked = !allChecked));
 }
 
-// --- Download Selected Images ---
+// --- Download Selected Images (with Gallica rate limiting support) ---
 async function downloadSelected() {
   var selectedImages = Array.from(
     document.querySelectorAll('input[type="checkbox"]:checked')
@@ -275,157 +327,281 @@ async function downloadSelected() {
     return;
   }
 
-  showMessage("Preparing images for download...");
+  // Check if Gallica rate limiting is enabled
+  const isGallica = document.getElementById("gallicaCheckbox") && 
+                    document.getElementById("gallicaCheckbox").checked;
+
+  if (isGallica) {
+    // Use sequential download with rate limiting for Gallica
+    await downloadSelectedSequential(selectedImages);
+  } else {
+    // Use parallel download for other manuscripts
+    downloadSelectedParallel(selectedImages);
+  }
+}
+
+// --- Sequential Download with Rate Limiting (for Gallica) ---
+async function downloadSelectedSequential(selectedImages) {
+  var zip = new JSZip();
+  var count = 0;
+  var errors = 0;
+
+  showMessage("Preparing images for download (with rate limiting)...");
   resetProgress();
-  showDetailedProgress(0, selectedImages.length, "Initializing...");
 
-  try {
-    zip.configure({
-      useWebWorkers: true,
-      maxWorkers: 4,
-    });
+  console.log(`Starting sequential download of ${selectedImages.length} images...`);
+  console.log("Selected images:", selectedImages);
 
-    const fileStream = streamSaver.createWriteStream("selected_images.zip");
-    const zipWriter = new zip.ZipWriter(fileStream);
+  for (let i = 0; i < selectedImages.length; i++) {
+    const img = selectedImages[i];
+    console.log(`Processing image ${i}:`, img);
+    
+    if (!img) {
+      console.error(`Image at index ${i} is undefined`);
+      errors++;
+      count++;
+      continue;
+    }
+    
+    const filename = sanitizeFilename(img.label) + ".jpg";
+    const urlsToTry = [];
+    
+    // Build URLs to try in order of preference
+    if (img.proxy) urlsToTry.push(img.proxy);
+    if (img.url) urlsToTry.push(img.url);
+    
+    // Add fallback URLs if it's a IIIF URL
+    if (img.url && img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+      if (baseUrl.includes("gallica.bnf.fr")) {
+        const corsProxy = "https://api.allorigins.win/raw?url=";
+        urlsToTry.push(
+          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
+          `${baseUrl}/full/full/0/native.jpg`,
+          `${baseUrl}/full/full/0/default.jpg`
+        );
+      }
+    }
+    
+    console.log(`URLs to try for ${filename}:`, urlsToTry);
 
-    console.log(`Starting download of ${selectedImages.length} images...`);
+    
+    let success = false;
 
-    let completed = 0;
-    let failed = 0;
-    const startTime = Date.now();
+    for (const url of urlsToTry) {
+      try {
+        console.log(`Attempting download: ${url}`);
+        const data = await fetchBinary(url);
 
-    const BATCH_SIZE = 5;
-    const results = [];
-
-    for (let i = 0; i < selectedImages.length; i += BATCH_SIZE) {
-      const batch = selectedImages.slice(i, i + BATCH_SIZE);
-
-      const batchPromises = batch.map(async (img, batchIndex) => {
-        const globalIndex = i + batchIndex;
-        const filename = sanitizeFilename(img.label) + ".jpg";
-
-        // --- CRUCIAL: Construct full-resolution image URL for download ---
-        // If it's a IIIF Image API base, request full/max size.
-        // Otherwise, assume it's a direct image URL and use it as is.
-        let imageUrlToDownload = img.fullImageApiBase;
-        if (
-          imageUrlToDownload &&
-          (imageUrlToDownload.includes("/iiif/image/") ||
-            imageUrlToDownload.match(/\/images\/.+\/?$/))
-        ) {
-          imageUrlToDownload = `${imageUrlToDownload}/full/max/0/default.jpg`;
-        }
-        // If fullImageApiBase was null or not an Image API, img.thumbnail would be the direct image URL,
-        // so we could fall back to that if fullImageApiBase wasn't specifically an image service.
-        // For simplicity and robustness, we'll use `fullImageApiBase` as the source for the highest resolution.
-        // If it was a direct image URL, it's already "full".
-
-        try {
-          updateDetailedProgress(
-            completed,
-            selectedImages.length,
-            `Downloading ${filename}...`,
-            startTime,
-            failed
-          );
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-          const response = await fetch(imageUrlToDownload, {
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throw new Error(
-              `HTTP ${response.status}: ${response.statusText} from ${imageUrlToDownload}`
-            );
+        let binaryData;
+        if (typeof data === "string") {
+          binaryData = new Uint8Array(data.length);
+          for (let j = 0; j < data.length; j++) {
+            binaryData[j] = data.charCodeAt(j) & 0xff;
           }
-
-          await zipWriter.add(filename, response.body);
-
-          completed++;
-          updateDetailedProgress(
-            completed,
-            selectedImages.length,
-            `Added ${filename}`,
-            startTime,
-            failed
-          );
-          updateProgress((completed / selectedImages.length) * 100);
-
-          console.log(
-            `✓ Successfully added ${filename} (${completed}/${selectedImages.length})`
-          );
-          return { success: true, filename, index: globalIndex };
-        } catch (error) {
-          failed++;
-          console.error(
-            `✗ Error processing ${filename} (URL: ${imageUrlToDownload}):`,
-            error
-          );
-
-          updateDetailedProgress(
-            completed,
-            selectedImages.length,
-            `Failed: ${filename}`,
-            startTime,
-            failed
-          );
-
-          return {
-            success: false,
-            filename,
-            error: error.message,
-            index: globalIndex,
-          };
+        } else if (data instanceof ArrayBuffer) {
+          binaryData = new Uint8Array(data);
+        } else {
+          binaryData = data;
         }
-      });
 
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-
-      if (i + BATCH_SIZE < selectedImages.length) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        if (binaryData.length > 1000) {
+          zip.file(filename, binaryData, { binary: true });
+          console.log(`✓ Added ${filename} to zip: ${binaryData.length} bytes`);
+          success = true;
+          break;
+        } else {
+          console.warn(`Data too small (${binaryData.length} bytes)`);
+        }
+      } catch (err) {
+        console.warn(`Failed to download from ${url}:`, err);
       }
     }
 
-    updateDetailedProgress(
-      completed,
-      selectedImages.length,
-      "Finalizing zip file...",
-      startTime,
-      failed
-    );
-    await zipWriter.close();
+    if (!success) {
+      console.error(`Failed to download ${filename} from all URLs`);
+      errors++;
+    }
 
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    const successCount = results.filter((r) => r.success).length;
+    count++;
+    updateProgress((count / selectedImages.length) * 100);
 
+    // Add delay between downloads for Gallica (except for the last image)
+    if (count < selectedImages.length) {
+      showMessage(`Downloaded ${count}/${selectedImages.length} images. Waiting 15 seconds...`);
+      await sleep(15000);
+      showMessage(`Downloading image ${count + 1}/${selectedImages.length}...`);
+    }
+  }
+
+  await completeZipDownload(zip, count, errors, selectedImages.length);
+}
+
+// --- Parallel Download (for non-Gallica manuscripts) ---
+function downloadSelectedParallel(selectedImages) {
+  var zip = new JSZip();
+  var count = 0;
+  var errors = 0;
+
+  showMessage("Preparing images for download...");
+  resetProgress();
+
+  console.log(`Starting parallel download of ${selectedImages.length} images...`);
+
+  selectedImages.forEach(function (img, index) {
+    var filename = sanitizeFilename(img.label) + ".jpg";
+
+    console.log(`Downloading ${filename} from ${img.url}`);
+
+    // For IIIF servers that might not support our first URL attempt,
+    // let's try a few different approaches
+    const urlsToTry = [];
+    if (img.proxy) urlsToTry.push(img.proxy);   // ① local backend (no CORS)
+    urlsToTry.push(img.url); // ② original URL (may fail due to CORS)   
+
+    // If it's a IIIF URL that failed, try some alternatives
+    if (img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+
+      if (baseUrl.includes("vatlib") || baseUrl.includes("digi.vatlib")) {
+        // Vatican Library specific fallbacks
+        urlsToTry.push(
+          `${baseUrl}/full/full/0/native.jpg`,
+          `${baseUrl}/full/1000,/0/native.jpg`,
+          `${baseUrl}/full/max/0/native.jpg`,
+          `${baseUrl}/full/full/0/default.jpg`
+        );
+      } else if (baseUrl.includes("gallica.bnf.fr")) {
+        // Gallica (French National Library) has very strict CORS - try proxied versions
+        const corsProxy = "https://api.allorigins.win/raw?url=";
+        urlsToTry.push(
+          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
+          corsProxy + encodeURIComponent(`${baseUrl}/full/1000,/0/native.jpg`),
+          `${baseUrl}/full/full/0/native.jpg`, // Try direct as last resort
+          `${baseUrl}/full/full/0/default.jpg`
+        );
+      } else {
+        // Standard IIIF fallbacks
+        urlsToTry.push(
+          `${baseUrl}/full/max/0/default.jpg`,
+          `${baseUrl}/full/full/0/default.jpg`,
+          `${baseUrl}/full/1000,/0/default.jpg`,
+          `${baseUrl}/full/,1000/0/default.jpg`,
+          baseUrl // Try the base image service URL directly
+        );
+      }
+    }
+
+    let attemptIndex = 0;
+
+    function tryDownload() {
+      if (attemptIndex >= urlsToTry.length) {
+        errors++;
+        console.error(`All download attempts failed for ${filename}`);
+        count++;
+        updateProgress((count / selectedImages.length) * 100);
+
+        if (count === selectedImages.length) {
+          completeZipDownload(zip, count, errors, selectedImages.length);
+        }
+        return;
+      }
+
+      const currentUrl = urlsToTry[attemptIndex];
+      console.log(`Attempt ${attemptIndex + 1} for ${filename}: ${currentUrl}`);
+
+      JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
+        if (err) {
+          console.log(
+            `Attempt ${attemptIndex + 1} failed for ${filename}:`,
+            err
+          );
+          attemptIndex++;
+          tryDownload(); // Try next URL
+          return;
+        }
+
+        console.log(
+          `✓ Successfully downloaded ${filename}`,
+          typeof data,
+          data.length || data.byteLength
+        );
+
+        // Handle different data types that JSZipUtils might return
+        let binaryData;
+        if (typeof data === "string") {
+          // JSZipUtils often returns binary strings - convert to Uint8Array
+          binaryData = new Uint8Array(data.length);
+          for (let i = 0; i < data.length; i++) {
+            binaryData[i] = data.charCodeAt(i) & 0xff;
+          }
+          console.log(
+            `Converted string to Uint8Array: ${binaryData.length} bytes`
+          );
+        } else if (data instanceof ArrayBuffer) {
+          binaryData = new Uint8Array(data);
+          console.log(`Using ArrayBuffer: ${binaryData.length} bytes`);
+        } else {
+          binaryData = data;
+          console.log(`Using data as-is: ${data.length} bytes`);
+        }
+
+        // Verify we have actual image data (should be much larger than 500 bytes for real images)
+        if (binaryData.length > 1000) {
+          zip.file(filename, binaryData, { binary: true });
+          console.log(`✓ Added ${filename} to zip: ${binaryData.length} bytes`);
+        } else {
+          console.log(
+            `Data too small (${binaryData.length} bytes), trying next URL...`
+          );
+          attemptIndex++;
+          tryDownload(); // Try next URL
+          return;
+        }
+
+        count++;
+        updateProgress((count / selectedImages.length) * 100);
+
+        // When all downloads are complete (successful or failed)
+        if (count === selectedImages.length) {
+          completeZipDownload(zip, count, errors, selectedImages.length);
+        }
+      });
+    }
+
+    tryDownload(); // Start the download attempts
+  });
+}
+
+// --- Complete Zip Download (shared by both sequential and parallel) ---
+async function completeZipDownload(zip, count, errors, totalImages) {
+  const successCount = count - errors;
+
+  if (successCount === 0) {
+    showMessage("Error: No images were successfully downloaded.");
+    resetProgress();
+    return;
+  }
+
+  showMessage("Creating zip file...");
+
+  try {
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, "selected_images.zip");
     showMessage(
-      `Download complete! ${successCount}/${
-        selectedImages.length
-      } images downloaded in ${totalTime}s. ${
-        failed > 0 ? `${failed} failed.` : ""
+      `Download complete! ${successCount}/${totalImages} images downloaded.${
+        errors > 0 ? ` ${errors} failed.` : ""
       }`
     );
-    showDetailedProgress(
-      completed,
-      selectedImages.length,
-      "Complete!",
-      startTime,
-      failed
-    );
-
-    setTimeout(() => resetProgress(), 3000);
-
-    console.log(
-      `Zip creation completed: ${successCount}/${selectedImages.length} successful, ${failed} failed`
-    );
+    resetProgress();
   } catch (error) {
-    showMessage("Error creating zip file: " + error.message);
+    showMessage("Error creating zip file.");
     console.error("Error creating zip file:", error);
     resetProgress();
   }
@@ -451,11 +627,6 @@ function resetProgress() {
   progressBar.querySelector(".progress-bar").style.width = "0%";
   progressBar.querySelector(".progress-bar").innerText = "0%";
   progressBar.classList.add("hide");
-
-  const detailedProgress = document.getElementById("detailed_progress");
-  if (detailedProgress) {
-    detailedProgress.style.display = "none";
-  }
 }
 
 function updateProgress(percent) {
@@ -466,98 +637,17 @@ function updateProgress(percent) {
     Math.round(percent) + "%";
 }
 
-function showDetailedProgress(
-  completed,
-  total,
-  currentAction,
-  startTime = null,
-  failed = 0
-) {
-  let detailedProgress = document.getElementById("detailed_progress");
-
-  if (!detailedProgress) {
-    detailedProgress = document.createElement("div");
-    detailedProgress.id = "detailed_progress";
-    detailedProgress.style.cssText = `
-            margin: 15px 0;
-            padding: 15px;
-            background: var(--surface-color); /* Using CSS variable */
-            border-radius: var(--radius-md); /* Using CSS variable */
-            border-left: 4px solid var(--accent-color); /* Using CSS variable */
-            font-family: monospace;
-            font-size: 14px;
-            line-height: 1.4;
-            color: var(--text-primary); /* Using CSS variable */
-        `;
-
-    const progressSection = document.getElementById("progress_bar");
-    progressSection.parentNode.insertBefore(
-      detailedProgress,
-      progressSection.nextSibling
-    );
-  }
-
-  detailedProgress.style.display = "block";
-
-  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
-  let timeInfo = "";
-
-  if (startTime && completed > 0) {
-    const elapsed = (Date.now() - startTime) / 1000;
-    const avgTime = elapsed / completed;
-    const remaining = (total - completed) * avgTime;
-    const eta =
-      remaining > 0 ? `ETA: ${formatTime(remaining)}` : "Almost done!";
-    timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
-  }
-
-  let statusHtml = `
-        <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-            <strong>Download Progress</strong>
-            <span style="color: var(--primary-color);">${percentage}% (${completed}/${total})</span>
-        </div>
-    `;
-
-  if (timeInfo) {
-    statusHtml += `
-            <div style="color: var(--text-secondary); margin-bottom: 8px; font-size: 12px;">
-                ${timeInfo}
-            </div>
-        `;
-  }
-
-  statusHtml += `
-        <div style="margin-bottom: 8px;">
-            <strong>Status:</strong> ${currentAction}
-        </div>
-    `;
-
-  if (failed > 0) {
-    statusHtml += `
-            <div style="color: var(--warning-color); font-size: 12px;">
-                ⚠️ ${failed} image(s) failed to download
-            </div>
-        `;
-  }
-
-  detailedProgress.innerHTML = statusHtml;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function updateDetailedProgress(
-  completed,
-  total,
-  currentAction,
-  startTime,
-  failed = 0
-) {
-  showDetailedProgress(completed, total, currentAction, startTime, failed);
-}
-
-function formatTime(seconds) {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${remainingSeconds}s`;
+function fetchBinary(url) {
+  return new Promise((resolve, reject) => {
+    JSZipUtils.getBinaryContent(url, function (err, data) {
+      if (err) reject(err);
+      else resolve(data);
+    });
+  });
 }
 
 // --- Event Listeners ---
@@ -572,5 +662,5 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 console.log(
-  "main.js loaded successfully with IIIF P2/P3 auto-detection and streaming zip support"
+  "main.js loaded successfully with Gallica rate limiting support"
 );
