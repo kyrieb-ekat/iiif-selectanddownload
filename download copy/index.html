@@ -625,6 +625,79 @@
             Download Selected
           </button>
         </div>
+        <div id="gallicaContainer" style="display: none; margin: 10px 0;">
+          <label>
+            <input type="checkbox" id="gallicaCheckbox"> 
+            Enable rate limiting for Gallica (15s delay between downloads)
+          </label>
+        </div>
+
+        <!-- NEW: Chunking Controls -->
+        <div
+          style="
+            margin-top: 20px;
+            padding: 16px;
+            background: var(--surface-color);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+          "
+        >
+          <h3
+            style="
+              font-family: 'Cinzel', serif;
+              color: var(--primary-color);
+              margin-bottom: 12px;
+              font-size: 1.1rem;
+            "
+          >
+            📦 Large Manuscript Settings
+          </h3>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              flex-wrap: wrap;
+            "
+          >
+            <label
+              for="chunkSize"
+              style="font-weight: bold; color: var(--text-primary)"
+            >
+              Images per zip file:
+            </label>
+            <input
+              type="number"
+              id="chunkSize"
+              value="50"
+              min="10"
+              max="200"
+              style="
+                width: 80px;
+                padding: 8px 12px;
+                border-radius: var(--radius-sm);
+                border: 1px solid var(--border-color);
+                background: var(--card-color);
+                color: var(--text-primary);
+                font-family: 'Crimson Text', serif;
+              "
+            />
+            <span style="color: var(--text-secondary); font-size: 0.9rem">
+              (Lower numbers = more zip files, less memory usage)
+            </span>
+          </div>
+          <div
+            style="
+              margin-top: 8px;
+              font-size: 0.85rem;
+              color: var(--text-secondary);
+            "
+          >
+            💡 <strong>Tip:</strong> Large manuscripts (100+ images) will
+            automatically create multiple zip files to prevent browser memory
+            issues.
+          </div>
+        </div>
       </div>
 
       <!-- Progress Section -->
@@ -665,9 +738,10 @@
     <div id="footer">© 2025 Kyrie Bouressa | IIIF Manifest Viewer</div>
 
     <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip-utils@0.1.0/dist/jszip-utils.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/streamsaver@2.0.6/StreamSaver.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@zip.js/zip.js@2.7.34/dist/zip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/he/he.js"></script>
     <script src="main.js"></script>
   </body>
