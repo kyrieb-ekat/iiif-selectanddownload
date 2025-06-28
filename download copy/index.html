@@ -611,10 +611,32 @@
             <option value="auto">Auto-Detect</option>
             <option value="p3">Presentation 3.0</option>
             <option value="p2">Presentation 2.x</option>
-          </select>
+          id="gallicaContainer" 
+          style="
+            margin-top: 15px; 
+            display: none; 
+            padding: 12px; 
+            background: var(--surface-color); 
+            border-radius: var(--radius-sm); 
+            border: 1px solid var(--border-color);
+          "
+        >
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="gallicaCheckbox" />
+            <span style="color: var(--text-primary); font-weight: 500;">
+              Enable rate limiting for Gallica (15 second delay between downloads)
+            </span>
+          </label>
+          <p style="
+            margin: 8px 0 0 24px; 
+            font-size: 0.9rem; 
+            color: var(--text-secondary); 
+            font-style: italic;
+          ">
+            Recommended for Gallica manuscripts to avoid rate limiting issues.
+          </p>
         </div>
       </div>
-
       <!-- Actions Section -->
       <div class="actions-section">
         <div class="actions-grid">
@@ -677,7 +699,7 @@
                 padding: 8px 12px;
                 border-radius: var(--radius-sm);
                 border: 1px solid var(--border-color);
-                background: var(--card-color);
+                background: var(--card-color);g
                 color: var(--text-primary);
                 font-family: 'Crimson Text', serif;
               "
