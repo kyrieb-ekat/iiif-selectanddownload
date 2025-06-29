@@ -27,16 +27,30 @@ async function getManifest() {
     document.getElementById("img-container").innerHTML = ""; // Clear previous images
     images = []; // Reset images array
 
-        function buildProxyUrl(iiifBase) {
-      // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
-      const arkMatch  = iiifBase.match(/ark:\/([^/]+\/[^/]+)/); // 12148/btv1b55010551d
-      const pageMatch = iiifBase.match(/\/f(\d+)/);             // 39
-      if (arkMatch && pageMatch) {
-        const ark  = encodeURIComponent(arkMatch[1]);
-        const page = pageMatch[1];
-        return `/download?ark=${ark}&f=${page}&size=full`;
+    function buildProxyUrl(iiifBase) {
+      // Check if this is a CNRS URL that might need proxying
+      if (iiifBase && iiifBase.includes("iiif.irht.cnrs.fr")) {
+        // For CNRS URLs, try to extract ARK and folio info
+        const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
+        const folioMatch = iiifBase.match(/\/f(\d+)/);
+        
+        if (arkMatch && folioMatch) {
+          const ark = arkMatch[1];
+          const folio = folioMatch[1];
+          return `/download?ark=${encodeURIComponent(ark)}&f=${folio}&size=full`;
+        }
       }
-      return null;   // not a Gallica IIIF URL → fall back to direct
+      
+      // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
+      const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
+      const pageMatch = iiifBase.match(/\/f(\d+)/);
+      if (arkMatch && pageMatch) {
+        const ark = arkMatch[1];
+        const page = pageMatch[1];
+        return `/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`;
+      }
+      
+      return null; // not a recognized IIIF URL → fall back to direct
     }
 
     let canvases = [];
@@ -80,13 +94,25 @@ async function getManifest() {
                                 return hasGallicaUrl;
                               });
     
+    // Only show/hide the container if it exists, don't auto-check
     const gallicaContainer = document.getElementById("gallicaContainer");
-    if (isGallicaManifest) {
-      gallicaContainer.style.display = "block";
-      document.getElementById("gallicaCheckbox").checked = true;
-    } else {
-      gallicaContainer.style.display = "none";
-      document.getElementById("gallicaCheckbox").checked = false;
+    if (gallicaContainer) {
+      if (isGallicaManifest) {
+        gallicaContainer.style.display = "block";
+        // Don't automatically check - let user decide
+        // document.getElementById("gallicaCheckbox").checked = true;
+      } else {
+        gallicaContainer.style.display = "none";
+        document.getElementById("gallicaCheckbox").checked = false;
+      }
+    }
+
+    // Show chunking options if we have many images
+    const chunkContainer = document.getElementById("chunkContainer");
+    if (chunkContainer && canvases.length > 50) {
+      chunkContainer.style.display = "block";
+    } else if (chunkContainer) {
+      chunkContainer.style.display = "none";
     }
 
     // --- Process Each Canvas ---
@@ -314,198 +340,493 @@ function selectAll() {
   checkboxes.forEach((checkbox) => (checkbox.checked = !allChecked));
 }
 
-// --- Download Selected Images (with Gallica rate limiting support) ---
+// Helper function to build all possible URLs to try
+// Enhanced buildUrlsToTry function with better CNRS support
+// Enhanced buildUrlsToTry function with Vatican Library support
+// Enhanced buildUrlsToTry function with Montecassino/Vatican support
+function buildUrlsToTry(img, index) {
+  const urlsToTry = [];
+  
+  console.log(`Building URLs for image ${index}:`, img);
+  
+  // 1. Try proxy first if available
+  if (img.proxy) {
+    urlsToTry.push(img.proxy);
+    console.log(`Added proxy URL: ${img.proxy}`);
+  }
+  
+  // 2. Add the primary URL first
+  if (img.url) {
+    urlsToTry.push(img.url);
+  }
+  
+  // 3. Montecassino/Vatican Digital Library specific handling
+  if (img.url && (img.url.includes("omnes.dbseret.com") || img.url.includes("montecassino") || img.url.includes("vatlib") || img.url.includes("digi.vatlib") || img.url.includes("vatican"))) {
+    console.log(`Detected Montecassino/Vatican URL: ${img.url}`);
+    
+    if (img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+      
+      // Montecassino/Vatican specific patterns
+      urlsToTry.push(
+        // Try the original URL first (already added above, but ensure it's there)
+        img.url,
+        
+        // Standard IIIF patterns that Vatican/Montecassino typically supports
+        `${baseUrl}/full/full/0/default.jpg`,
+        `${baseUrl}/full/max/0/default.jpg`,
+        `${baseUrl}/full/full/0/native.jpg`,
+        `${baseUrl}/full/max/0/native.jpg`,
+        
+        // Try removing the current size parameters and using standard ones
+        `${baseUrl}/full/1200,/0/default.jpg`,
+        `${baseUrl}/full/800,/0/default.jpg`,
+        `${baseUrl}/full/600,/0/default.jpg`,
+        `${baseUrl}/full/400,/0/default.jpg`,
+        
+        // Try height-based sizing
+        `${baseUrl}/full/,1200/0/default.jpg`,
+        `${baseUrl}/full/,800/0/default.jpg`,
+        `${baseUrl}/full/,600/0/default.jpg`,
+        
+        // Try exact dimensions that Vatican often uses
+        `${baseUrl}/full/800,1067/0/default.jpg`,
+        `${baseUrl}/full/600,800/0/default.jpg`,
+        `${baseUrl}/full/1200,1600/0/default.jpg`,
+        
+        // Try without rotation parameter (remove /0/)
+        `${baseUrl}/full/full/default.jpg`,
+        `${baseUrl}/full/max/default.jpg`,
+        `${baseUrl}/full/1200,/default.jpg`,
+        `${baseUrl}/full/800,/default.jpg`,
+        
+        // Try different quality/format parameters
+        `${baseUrl}/full/full/0/color.jpg`,
+        `${baseUrl}/full/max/0/color.jpg`,
+        `${baseUrl}/full/full/0/gray.jpg`,
+        `${baseUrl}/full/full/0/bitonal.jpg`,
+        
+        // Try the base URL directly
+        baseUrl,
+        `${baseUrl}.jpg`,
+        
+        // Try legacy IIIF 1.0 patterns
+        `${baseUrl}/full/0/native.jpg`,
+        `${baseUrl}/full/0/default.jpg`,
+        `${baseUrl}/full/native.jpg`,
+        `${baseUrl}/full/default.jpg`,
+        
+        // Try different rotation values
+        `${baseUrl}/full/full/90/default.jpg`,
+        `${baseUrl}/full/full/180/default.jpg`,
+        `${baseUrl}/full/full/270/default.jpg`,
+        
+        // Try removing URL encoding issues
+        img.url.replace(/%5B/g, '[').replace(/%5D/g, ']'),
+        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/full/0/default.jpg`,
+        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/max/0/default.jpg`,
+        
+        // Try alternative path structures sometimes used by Vatican systems
+        `${baseUrl.replace('/iiif/2/', '/iiif/')}/full/full/0/default.jpg`,
+        `${baseUrl.replace('/iiif/2/', '/images/')}/full/full/0/default.jpg`,
+        `${baseUrl.replace('/iiif/', '/images/')}/full/full/0/default.jpg`
+      );
+    } else {
+      // If no /full/ in URL, try adding IIIF parameters
+      urlsToTry.push(
+        `${img.url}/full/full/0/default.jpg`,
+        `${img.url}/full/max/0/default.jpg`,
+        `${img.url}/full/1200,/0/default.jpg`,
+        `${img.url}/full/800,/0/default.jpg`
+      );
+    }
+  }
+  // 4. For CNRS URLs
+  else if (img.url && img.url.includes("iiif.irht.cnrs.fr")) {
+    console.log(`Detected CNRS URL: ${img.url}`);
+    
+    const baseUrl = img.url.split("/full/")[0];
+    
+    urlsToTry.push(
+      `${baseUrl}/full/full/0/default.jpg`,
+      `${baseUrl}/full/max/0/default.jpg`,
+      `${baseUrl}/full/1200,/0/default.jpg`,
+      `${baseUrl}/full/800,/0/default.jpg`,
+      `${baseUrl}/full/600,/0/default.jpg`,
+      `${baseUrl}/full/400,/0/default.jpg`,
+      `${baseUrl}/full/full/90/default.jpg`,
+      `${baseUrl}/full/full/180/default.jpg`,
+      `${baseUrl}/full/full/270/default.jpg`,
+      `${baseUrl}/full/full/default.jpg`,
+      `${baseUrl}/full/max/default.jpg`,
+      baseUrl,
+      `${baseUrl}.jpg`,
+      `${baseUrl}/full/full/0/default.png`,
+      `${baseUrl}/full/max/0/default.png`,
+      `${baseUrl}/full/full/0/native.jpg`,
+      `${baseUrl}/full/max/0/native.jpg`,
+      `${baseUrl}/full/0/native.jpg`,
+      `${baseUrl}/full/0/default.jpg`
+    );
+  }
+  // 5. For Gallica URLs
+  else if (img.url && img.url.includes("gallica.bnf.fr")) {
+    console.log(`Detected Gallica URL: ${img.url}`);
+    
+    if (img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+      
+      const corsProxy = "https://api.allorigins.win/raw?url=";
+      urlsToTry.push(
+        corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
+        corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
+        corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
+        corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
+        corsProxy + encodeURIComponent(`${baseUrl}/full/2000,/0/native.jpg`),
+        `${baseUrl}/full/full/0/native.jpg`,
+        `${baseUrl}/full/full/0/default.jpg`,
+        `${baseUrl}/full/max/0/native.jpg`,
+        `${baseUrl}/full/max/0/default.jpg`
+      );
+    }
+  }
+  // 6. For other IIIF URLs
+  else if (img.url && img.url.includes("/full/")) {
+    console.log(`Detected other IIIF URL: ${img.url}`);
+    
+    const baseUrl = img.url.split("/full/")[0];
+    
+    urlsToTry.push(
+      `${baseUrl}/full/max/0/default.jpg`,
+      `${baseUrl}/full/full/0/default.jpg`,
+      `${baseUrl}/full/2000,/0/default.jpg`,
+      `${baseUrl}/full/1500,/0/default.jpg`,
+      `${baseUrl}/full/1000,/0/default.jpg`,
+      `${baseUrl}/full/800,/0/default.jpg`,
+      baseUrl
+    );
+  }
+  // 7. Direct URL fallback
+  else if (img.url) {
+    console.log(`Direct URL (non-IIIF): ${img.url}`);
+    // Already added above, but make sure it's there
+  }
+  
+  // Remove duplicates while preserving order
+  const uniqueUrls = [...new Set(urlsToTry)];
+  console.log(`Final URLs to try for image ${index} (${uniqueUrls.length} total):`, uniqueUrls);
+  
+  // Log the first few URLs for debugging
+  uniqueUrls.slice(0, 5).forEach((url, i) => {
+    console.log(`  ${i + 1}. ${url}`);
+  });
+  
+  return uniqueUrls;
+}
+// --- Download Selected Images (main entry point) ---
 async function downloadSelected() {
-  var selectedImages = Array.from(
+  console.log("Download function called");
+  
+  const selectedCheckboxes = Array.from(
     document.querySelectorAll('input[type="checkbox"]:checked')
-  ).map((checkbox) => images[parseInt(checkbox.value)]);
+  );
+  
+  console.log("Selected checkboxes:", selectedCheckboxes);
+  console.log("Images array:", images);
+  
+  const selectedImages = selectedCheckboxes.map((checkbox) => {
+    const index = parseInt(checkbox.value);
+    const img = images[index];
+    console.log(`Checkbox value: ${checkbox.value}, Index: ${index}, Image:`, img);
+    return img;
+  }).filter(img => img !== undefined);
+
+  console.log("Selected images after filtering:", selectedImages);
 
   if (selectedImages.length === 0) {
-    showMessage(
-      "No images selected. Please select at least one image to download."
-    );
+    showMessage("No images selected. Please select at least one image to download.");
     return;
   }
 
-  // Check if Gallica rate limiting is enabled
-  const isGallica = document.getElementById("gallicaCheckbox") && 
-                    document.getElementById("gallicaCheckbox").checked;
+  // Get chunking preferences with proper null checks
+  const chunkCheckbox = document.getElementById("chunkCheckbox");
+  const chunkSizeInput = document.getElementById("chunkSize");
+  
+  console.log("Chunk checkbox element:", chunkCheckbox);
+  console.log("Chunk size input element:", chunkSizeInput);
+  
+  const shouldChunk = chunkCheckbox ? chunkCheckbox.checked : false;
+  const chunkSize = chunkSizeInput ? parseInt(chunkSizeInput.value) || 50 : 50;
 
-  if (isGallica) {
-    // Use sequential download with rate limiting for Gallica
-    await downloadSelectedSequential(selectedImages);
+  // Check if Gallica rate limiting is enabled
+  const gallicaCheckbox = document.getElementById("gallicaCheckbox");
+  const isGallica = gallicaCheckbox ? gallicaCheckbox.checked : false;
+
+  console.log("Chunking enabled:", shouldChunk);
+  console.log("Chunk size:", chunkSize);
+  console.log("Gallica rate limiting:", isGallica);
+  console.log("Total images to download:", selectedImages.length);
+
+  if (shouldChunk && selectedImages.length > chunkSize) {
+    console.log("Using chunked download");
+    await downloadSelectedChunked(selectedImages, chunkSize, isGallica);
   } else {
-    // Use parallel download for other manuscripts
-    downloadSelectedParallel(selectedImages);
+    console.log("Using regular download");
+    if (isGallica) {
+      await downloadSelectedSequential(selectedImages);
+    } else {
+      await downloadSelectedParallel(selectedImages);
+    }
   }
 }
 
-// --- Sequential Download with Rate Limiting (for Gallica) ---
-async function downloadSelectedSequential(selectedImages) {
+// --- Chunked Download Function ---
+async function downloadSelectedChunked(selectedImages, chunkSize, isGallica) {
+  const totalImages = selectedImages.length;
+  const chunks = [];
+  
+  // Split images into chunks
+  for (let i = 0; i < totalImages; i += chunkSize) {
+    chunks.push(selectedImages.slice(i, i + chunkSize));
+  }
+
+  console.log(`Splitting ${totalImages} images into ${chunks.length} chunks of ${chunkSize} images each`);
+  
+  showMessage(`Preparing to download ${totalImages} images in ${chunks.length} zip files...`);
+  resetProgress();
+
+  let overallProgress = 0;
+  const totalChunks = chunks.length;
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
+    const chunkNumber = chunkIndex + 1;
+    
+    showMessage(`Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} images)...`);
+    
+    try {
+      if (isGallica) {
+        await downloadChunkSequential(chunk, chunkNumber, chunkIndex, totalChunks);
+      } else {
+        await downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks);
+      }
+      
+      overallProgress = (chunkNumber / totalChunks) * 100;
+      updateProgress(overallProgress);
+      
+      // Brief pause between chunks
+      if (chunkIndex < chunks.length - 1) {
+        showMessage(`Chunk ${chunkNumber} complete. Preparing next chunk...`);
+        await sleep(2000);
+      }
+      
+    } catch (error) {
+      console.error(`Error processing chunk ${chunkNumber}:`, error);
+      showMessage(`Error in chunk ${chunkNumber}: ${error.message}`);
+    }
+  }
+
+  showMessage(`All ${totalChunks} zip files downloaded successfully!`);
+  setTimeout(() => resetProgress(), 3000);
+}
+
+// --- Download Single Chunk (Sequential for Gallica) ---
+async function downloadChunkSequential(chunk, chunkNumber, chunkIndex, totalChunks) {
   var zip = new JSZip();
   var count = 0;
   var errors = 0;
+  const startTime = Date.now();
 
-  showMessage("Preparing images for download (with rate limiting)...");
-  resetProgress();
+  console.log(`Starting sequential download of chunk ${chunkNumber} (${chunk.length} images)`);
 
-  console.log(`Starting sequential download of ${selectedImages.length} images...`);
-  console.log("Selected images:", selectedImages);
-
-  for (let i = 0; i < selectedImages.length; i++) {
-    const img = selectedImages[i];
-    console.log(`Processing image ${i}:`, img);
+  for (let i = 0; i < chunk.length; i++) {
+    const img = chunk[i];
     
-    if (!img) {
-      console.error(`Image at index ${i} is undefined`);
+    if (!img || !img.url) {
+      console.error(`Image at index ${i} in chunk ${chunkNumber} is invalid:`, img);
       errors++;
       count++;
       continue;
     }
     
-    const filename = sanitizeFilename(img.label) + ".jpg";
-    const urlsToTry = [];
-    
-    // Build URLs to try in order of preference
-    if (img.proxy) urlsToTry.push(img.proxy);
-    if (img.url) urlsToTry.push(img.url);
-    
-    // Add fallback URLs if it's a IIIF URL
-    if (img.url && img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-      if (baseUrl.includes("gallica.bnf.fr")) {
-        const corsProxy = "https://api.allorigins.win/raw?url=";
-        urlsToTry.push(
-          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
-          `${baseUrl}/full/full/0/native.jpg`,
-          `${baseUrl}/full/full/0/default.jpg`
-        );
-      }
-    }
-    
-    console.log(`URLs to try for ${filename}:`, urlsToTry);
-
+    const filename = sanitizeFilename(img.label || `image_${i + 1}`) + ".jpg";
+    const urlsToTry = buildUrlsToTry(img, i);
     
     let success = false;
-
-    for (const url of urlsToTry) {
+    for (let urlIndex = 0; urlIndex < urlsToTry.length; urlIndex++) {
+      const url = urlsToTry[urlIndex];
       try {
-        console.log(`Attempting download: ${url}`);
+        console.log(`🔄 Chunk ${chunkNumber}: Attempt ${urlIndex + 1}/${urlsToTry.length} for ${filename}`);
         const data = await fetchBinary(url);
-
-        let binaryData;
-        if (typeof data === "string") {
-          binaryData = new Uint8Array(data.length);
-          for (let j = 0; j < data.length; j++) {
-            binaryData[j] = data.charCodeAt(j) & 0xff;
-          }
-        } else if (data instanceof ArrayBuffer) {
-          binaryData = new Uint8Array(data);
-        } else {
-          binaryData = data;
-        }
-
-        if (binaryData.length > 1000) {
+        let binaryData = processBinaryData(data);
+        
+        if (binaryData.length > 5000) {
           zip.file(filename, binaryData, { binary: true });
-          console.log(`✓ Added ${filename} to zip: ${binaryData.length} bytes`);
+          console.log(`✅ Chunk ${chunkNumber}: Added ${filename} (${binaryData.length} bytes)`);
           success = true;
           break;
-        } else {
-          console.warn(`Data too small (${binaryData.length} bytes)`);
         }
       } catch (err) {
-        console.warn(`Failed to download from ${url}:`, err);
+        console.warn(`❌ Chunk ${chunkNumber}: Failed ${filename} from ${url.substring(0, 40)}...`);
       }
     }
 
     if (!success) {
-      console.error(`Failed to download ${filename} from all URLs`);
+      console.error(`❌ Chunk ${chunkNumber}: Failed ${filename} from all URLs`);
       errors++;
     }
 
     count++;
-    updateProgress((count / selectedImages.length) * 100);
-
-    // Add delay between downloads for Gallica (except for the last image)
-    if (count < selectedImages.length) {
-      showMessage(`Downloaded ${count}/${selectedImages.length} images. Waiting 15 seconds...`);
+    
+    // Add delay for Gallica (except for last image in chunk)
+    if (count < chunk.length) {
+      showMessage(`Chunk ${chunkNumber}: Downloaded ${count}/${chunk.length} images. Waiting 15 seconds...`);
       await sleep(15000);
-      showMessage(`Downloading image ${count + 1}/${selectedImages.length}...`);
     }
   }
 
-  await completeZipDownload(zip, count, errors, selectedImages.length);
+  await saveChunkZip(zip, chunkNumber, count, errors, chunk.length);
 }
 
-// --- Parallel Download (for non-Gallica manuscripts) ---
+// --- Download Single Chunk (Parallel for non-Gallica) ---
+async function downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks) {
+  return new Promise((resolve, reject) => {
+    var zip = new JSZip();
+    var count = 0;
+    var errors = 0;
+
+    console.log(`Starting parallel download of chunk ${chunkNumber} (${chunk.length} images)`);
+
+    chunk.forEach(function (img, index) {
+      if (!img || !img.url) {
+        console.error(`Image at index ${index} in chunk ${chunkNumber} is invalid:`, img);
+        errors++;
+        count++;
+        
+        if (count === chunk.length) {
+          saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
+            .then(resolve)
+            .catch(reject);
+        }
+        return;
+      }
+
+      var filename = sanitizeFilename(img.label || `image_${index + 1}`) + ".jpg";
+      const urlsToTry = buildUrlsToTry(img, index);
+      let attemptIndex = 0;
+
+      function tryDownload() {
+        if (attemptIndex >= urlsToTry.length) {
+          errors++;
+          console.error(`❌ Chunk ${chunkNumber}: All attempts failed for ${filename}`);
+          count++;
+          
+          if (count === chunk.length) {
+            saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
+              .then(resolve)
+              .catch(reject);
+          }
+          return;
+        }
+
+        const currentUrl = urlsToTry[attemptIndex];
+
+        JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
+          if (err) {
+            console.log(`❌ Chunk ${chunkNumber}: Attempt ${attemptIndex + 1} failed for ${filename}`);
+            attemptIndex++;
+            setTimeout(tryDownload, 500);
+            return;
+          }
+
+          let binaryData = processBinaryData(data);
+
+          if (binaryData.length > 5000) {
+            zip.file(filename, binaryData, { binary: true });
+            console.log(`✅ Chunk ${chunkNumber}: Added ${filename} (${binaryData.length} bytes)`);
+          } else {
+            console.log(`⚠️ Chunk ${chunkNumber}: Data too small for ${filename}, trying next URL...`);
+            attemptIndex++;
+            setTimeout(tryDownload, 500);
+            return;
+          }
+
+          count++;
+
+          if (count === chunk.length) {
+            saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
+              .then(resolve)
+              .catch(reject);
+          }
+        });
+      }
+
+      tryDownload();
+    });
+  });
+}
+
+// --- Save Individual Chunk as Zip ---
+async function saveChunkZip(zip, chunkNumber, count, errors, totalInChunk) {
+  const successCount = count - errors;
+
+  if (successCount === 0) {
+    throw new Error(`No images were successfully downloaded in chunk ${chunkNumber}`);
+  }
+
+  try {
+    const content = await zip.generateAsync({ type: "blob" });
+    const filename = `images_chunk_${chunkNumber.toString().padStart(3, '0')}.zip`;
+    saveAs(content, filename);
+    
+    console.log(`✅ Chunk ${chunkNumber} saved: ${successCount}/${totalInChunk} images`);
+    return { success: true, downloaded: successCount, failed: errors };
+  } catch (error) {
+    console.error(`Error creating zip for chunk ${chunkNumber}:`, error);
+    throw error;
+  }
+}
+
+// --- Parallel Download with Enhanced Progress ---
 function downloadSelectedParallel(selectedImages) {
   var zip = new JSZip();
   var count = 0;
   var errors = 0;
+  const startTime = Date.now();
 
   showMessage("Preparing images for download...");
   resetProgress();
+  showDetailedProgress(0, selectedImages.length, "Starting parallel download...", startTime, 0);
 
   console.log(`Starting parallel download of ${selectedImages.length} images...`);
 
   selectedImages.forEach(function (img, index) {
-    var filename = sanitizeFilename(img.label) + ".jpg";
-
-    console.log(`Downloading ${filename} from ${img.url}`);
-
-    // For IIIF servers that might not support our first URL attempt,
-    // let's try a few different approaches
-    const urlsToTry = [];
-    if (img.proxy) urlsToTry.push(img.proxy);   // ① local backend (no CORS)
-    urlsToTry.push(img.url); // ② original URL (may fail due to CORS)   
-
-    // If it's a IIIF URL that failed, try some alternatives
-    if (img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-
-      if (baseUrl.includes("vatlib") || baseUrl.includes("digi.vatlib")) {
-        // Vatican Library specific fallbacks
-        urlsToTry.push(
-          `${baseUrl}/full/full/0/native.jpg`,
-          `${baseUrl}/full/1000,/0/native.jpg`,
-          `${baseUrl}/full/max/0/native.jpg`,
-          `${baseUrl}/full/full/0/default.jpg`
-        );
-      } else if (baseUrl.includes("gallica.bnf.fr")) {
-        // Gallica (French National Library) has very strict CORS - try proxied versions
-        const corsProxy = "https://api.allorigins.win/raw?url=";
-        urlsToTry.push(
-          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
-          corsProxy + encodeURIComponent(`${baseUrl}/full/1000,/0/native.jpg`),
-          `${baseUrl}/full/full/0/native.jpg`, // Try direct as last resort
-          `${baseUrl}/full/full/0/default.jpg`
-        );
-      } else {
-        // Standard IIIF fallbacks
-        urlsToTry.push(
-          `${baseUrl}/full/max/0/default.jpg`,
-          `${baseUrl}/full/full/0/default.jpg`,
-          `${baseUrl}/full/1000,/0/default.jpg`,
-          `${baseUrl}/full/,1000/0/default.jpg`,
-          baseUrl // Try the base image service URL directly
-        );
+    if (!img || !img.url) {
+      console.error(`Image at index ${index} is invalid:`, img);
+      errors++;
+      count++;
+      updateProgress((count / selectedImages.length) * 100);
+      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${index}`, startTime, errors);
+      
+      if (count === selectedImages.length) {
+        completeZipDownload(zip, count, errors, selectedImages.length);
       }
+      return;
     }
+    
+    var filename = sanitizeFilename(img.label || `image_${index + 1}`) + ".jpg";
+    console.log(`Processing ${filename} from ${img.url}`);
 
+    const urlsToTry = buildUrlsToTry(img, index);
     let attemptIndex = 0;
 
     function tryDownload() {
       if (attemptIndex >= urlsToTry.length) {
         errors++;
-        console.error(`All download attempts failed for ${filename}`);
+        console.error(`❌ All ${urlsToTry.length} download attempts failed for ${filename}`);
         count++;
         updateProgress((count / selectedImages.length) * 100);
+        updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors);
 
         if (count === selectedImages.length) {
           completeZipDownload(zip, count, errors, selectedImages.length);
@@ -514,72 +835,220 @@ function downloadSelectedParallel(selectedImages) {
       }
 
       const currentUrl = urlsToTry[attemptIndex];
-      console.log(`Attempt ${attemptIndex + 1} for ${filename}: ${currentUrl}`);
+      console.log(`🔄 Attempt ${attemptIndex + 1}/${urlsToTry.length} for ${filename}: ${currentUrl.substring(0, 60)}...`);
+      
+      updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${attemptIndex + 1}/${urlsToTry.length})`, startTime, errors);
 
       JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
         if (err) {
-          console.log(
-            `Attempt ${attemptIndex + 1} failed for ${filename}:`,
-            err
-          );
+          console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
           attemptIndex++;
-          tryDownload(); // Try next URL
+          
+          // Add a small delay between attempts
+          setTimeout(tryDownload, 500);
           return;
         }
 
-        console.log(
-          `✓ Successfully downloaded ${filename}`,
-          typeof data,
-          data.length || data.byteLength
-        );
+        console.log(`✅ Downloaded ${filename}:`, typeof data, data.length || data.byteLength, 'bytes');
 
-        // Handle different data types that JSZipUtils might return
-        let binaryData;
-        if (typeof data === "string") {
-          // JSZipUtils often returns binary strings - convert to Uint8Array
-          binaryData = new Uint8Array(data.length);
-          for (let i = 0; i < data.length; i++) {
-            binaryData[i] = data.charCodeAt(i) & 0xff;
-          }
-          console.log(
-            `Converted string to Uint8Array: ${binaryData.length} bytes`
-          );
-        } else if (data instanceof ArrayBuffer) {
-          binaryData = new Uint8Array(data);
-          console.log(`Using ArrayBuffer: ${binaryData.length} bytes`);
-        } else {
-          binaryData = data;
-          console.log(`Using data as-is: ${data.length} bytes`);
-        }
+        let binaryData = processBinaryData(data);
 
-        // Verify we have actual image data (should be much larger than 500 bytes for real images)
-        if (binaryData.length > 1000) {
+        // Check if we got actual image data
+        if (binaryData.length > 5000) {
           zip.file(filename, binaryData, { binary: true });
-          console.log(`✓ Added ${filename} to zip: ${binaryData.length} bytes`);
+          console.log(`📁 Added ${filename} to zip: ${binaryData.length} bytes`);
+          
+          count++;
+          updateProgress((count / selectedImages.length) * 100);
+          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors);
+
+          if (count === selectedImages.length) {
+            completeZipDownload(zip, count, errors, selectedImages.length);
+          }
         } else {
-          console.log(
-            `Data too small (${binaryData.length} bytes), trying next URL...`
-          );
+          console.log(`⚠️ Data too small for ${filename} (${binaryData.length} bytes), trying next URL...`);
           attemptIndex++;
-          tryDownload(); // Try next URL
+          setTimeout(tryDownload, 500);
           return;
-        }
-
-        count++;
-        updateProgress((count / selectedImages.length) * 100);
-
-        // When all downloads are complete (successful or failed)
-        if (count === selectedImages.length) {
-          completeZipDownload(zip, count, errors, selectedImages.length);
         }
       });
     }
 
-    tryDownload(); // Start the download attempts
+    tryDownload();
   });
 }
 
-// --- Complete Zip Download (shared by both sequential and parallel) ---
+// --- Sequential Download with Enhanced Progress ---
+async function downloadSelectedSequential(selectedImages) {
+  var zip = new JSZip();
+  var count = 0;
+  var errors = 0;
+  const startTime = Date.now();
+
+  showMessage("Preparing images for download (with rate limiting)...");
+  resetProgress();
+  showDetailedProgress(0, selectedImages.length, "Starting sequential download...", startTime, 0);
+
+  console.log(`Starting sequential download of ${selectedImages.length} images...`);
+
+  for (let i = 0; i < selectedImages.length; i++) {
+    const img = selectedImages[i];
+    
+    if (!img || !img.url) {
+      console.error(`Image at index ${i} is invalid:`, img);
+      errors++;
+      count++;
+      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${i}`, startTime, errors);
+      continue;
+    }
+    
+    const filename = sanitizeFilename(img.label || `image_${i + 1}`) + ".jpg";
+    console.log(`Processing ${filename} from ${img.url}`);
+    
+    updateDetailedProgress(count, selectedImages.length, `Processing ${filename}...`, startTime, errors);
+    
+    const urlsToTry = buildUrlsToTry(img, i);
+    
+    let success = false;
+    for (let urlIndex = 0; urlIndex < urlsToTry.length; urlIndex++) {
+      const url = urlsToTry[urlIndex];
+      try {
+        console.log(`🔄 Attempt ${urlIndex + 1}/${urlsToTry.length} for ${filename}: ${url.substring(0, 60)}...`);
+        updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${urlIndex + 1}/${urlsToTry.length})`, startTime, errors);
+        
+        const data = await fetchBinary(url);
+        let binaryData = processBinaryData(data);
+        
+        if (binaryData.length > 5000) {
+          zip.file(filename, binaryData, { binary: true });
+          console.log(`✅ Added ${filename} to zip: ${binaryData.length} bytes`);
+          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors);
+          success = true;
+          break;
+        } else {
+          console.warn(`⚠️ Data too small (${binaryData.length} bytes) from ${url.substring(0, 40)}...`);
+        }
+      } catch (err) {
+        console.warn(`❌ Failed to download from ${url.substring(0, 40)}...:`, err.message || err);
+      }
+    }
+
+    if (!success) {
+      console.error(`❌ Failed to download ${filename} from all ${urlsToTry.length} URLs`);
+      errors++;
+      updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors);
+    }
+
+    count++;
+    updateProgress((count / selectedImages.length) * 100);
+
+    if (count < selectedImages.length) {
+      const delay = img.url && img.url.includes("gallica.bnf.fr") ? 15000 : 2000;
+      showMessage(`Downloaded ${count}/${selectedImages.length} images. Waiting ${delay/1000} seconds...`);
+      updateDetailedProgress(count, selectedImages.length, `Waiting ${delay/1000}s before next download...`, startTime, errors);
+      await sleep(delay);
+    }
+  }
+
+  await completeZipDownload(zip, count, errors, selectedImages.length);
+}
+
+// --- Enhanced Progress Functions ---
+function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0) {
+  let detailedProgress = document.getElementById("detailed_progress");
+
+  if (!detailedProgress) {
+    detailedProgress = document.createElement("div");
+    detailedProgress.id = "detailed_progress";
+    detailedProgress.style.cssText = `
+      margin: 15px 0;
+      padding: 15px;
+      background: var(--surface-color);
+      border-radius: var(--radius-md);
+      border-left: 4px solid var(--accent-color);
+      font-family: monospace;
+      font-size: 14px;
+      line-height: 1.4;
+      color: var(--text-primary);
+    `;
+
+    const progressSection = document.getElementById("progress_bar");
+    progressSection.parentNode.insertBefore(detailedProgress, progressSection.nextSibling);
+  }
+
+  detailedProgress.style.display = "block";
+
+  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  let timeInfo = "";
+
+  if (startTime && completed > 0) {
+    const elapsed = (Date.now() - startTime) / 1000;
+    const avgTime = elapsed / completed;
+    const remaining = (total - completed) * avgTime;
+    const eta = remaining > 0 ? `ETA: ${formatTime(remaining)}` : "Almost done!";
+    timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
+  }
+
+  let statusHtml = `
+    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+      <strong>Download Progress</strong>
+      <span style="color: var(--primary-color);">${percentage}% (${completed}/${total})</span>
+    </div>
+  `;
+
+  if (timeInfo) {
+    statusHtml += `
+      <div style="color: var(--text-secondary); margin-bottom: 8px; font-size: 12px;">
+        ${timeInfo}
+      </div>
+    `;
+  }
+
+  statusHtml += `
+    <div style="margin-bottom: 8px;">
+      <strong>Status:</strong> ${currentAction}
+    </div>
+  `;
+
+  if (failed > 0) {
+    statusHtml += `
+      <div style="color: var(--warning-color); font-size: 12px;">
+        ⚠️ ${failed} image(s) failed to download
+      </div>
+    `;
+  }
+
+  detailedProgress.innerHTML = statusHtml;
+}
+
+function updateDetailedProgress(completed, total, currentAction, startTime, failed = 0) {
+  showDetailedProgress(completed, total, currentAction, startTime, failed);
+}
+
+function formatTime(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainingSeconds}s`;
+}
+
+// --- Helper function to process binary data ---
+function processBinaryData(data) {
+  let binaryData;
+  if (typeof data === "string") {
+    binaryData = new Uint8Array(data.length);
+    for (let j = 0; j < data.length; j++) {
+      binaryData[j] = data.charCodeAt(j) & 0xff;
+    }
+  } else if (data instanceof ArrayBuffer) {
+    binaryData = new Uint8Array(data);
+  } else {
+    binaryData = data;
+  }
+  return binaryData;
+}
+
+// --- Complete Single Zip Download ---
 async function completeZipDownload(zip, count, errors, totalImages) {
   const successCount = count - errors;
 
@@ -627,6 +1096,11 @@ function resetProgress() {
   progressBar.querySelector(".progress-bar").style.width = "0%";
   progressBar.querySelector(".progress-bar").innerText = "0%";
   progressBar.classList.add("hide");
+
+  const detailedProgress = document.getElementById("detailed_progress");
+  if (detailedProgress) {
+    detailedProgress.style.display = "none";
+  }
 }
 
 function updateProgress(percent) {
@@ -662,5 +1136,5 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 console.log(
-  "main.js loaded successfully with Gallica rate limiting support"
+  "main.js loaded successfully with enhanced progress tracking and CNRS support"
 );
