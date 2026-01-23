@@ -611,82 +611,7 @@
             <option value="auto">Auto-Detect</option>
             <option value="p3">Presentation 3.0</option>
             <option value="p2">Presentation 2.x</option>
-          id="gallicaContainer" 
-          style="
-            margin-top: 15px; 
-            display: none; 
-            padding: 12px; 
-            background: var(--surface-color); 
-            border-radius: var(--radius-sm); 
-            border: 1px solid var(--border-color);
-          "
-        >
-          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-            <input type="checkbox" id="gallicaCheckbox" />
-            <span style="color: var(--text-primary); font-weight: 500;">
-              Enable rate limiting for Gallica (15 second delay between downloads)
-            </span>
-          </label>
-          <p style="
-            margin: 8px 0 0 24px; 
-            font-size: 0.9rem; 
-            color: var(--text-secondary); 
-            font-style: italic;
-          ">
-            Recommended for Gallica manuscripts to avoid rate limiting issues.
-          </p>
-        </div>
-      </div>
-      <!-- Chunking Options Section -->
-      <div 
-        id="chunkContainer" 
-        style="
-          margin-top: 15px; 
-          display: none; 
-          padding: 12px; 
-          background: var(--surface-color); 
-          border-radius: var(--radius-sm); 
-          border: 1px solid var(--border-color);
-        "
-      >
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 10px;">
-          <input type="checkbox" id="chunkCheckbox" />
-          <span style="color: var(--text-primary); font-weight: 500;">
-            Split download into multiple zip files
-          </span>
-        </label>
-        
-        <div style="margin-left: 24px; display: flex; align-items: center; gap: 10px;">
-          <label for="chunkSize" style="color: var(--text-secondary); font-size: 0.9rem;">
-            Images per zip file:
-          </label>
-          <input 
-            type="number" 
-            id="chunkSize" 
-            value="50" 
-            min="10" 
-            max="200" 
-            style="
-              width: 80px; 
-              padding: 4px 8px; 
-              border-radius: var(--radius-sm); 
-              border: 1px solid var(--border-color); 
-              background: var(--card-color); 
-              color: var(--text-primary);
-              font-family: 'Crimson Text', serif;
-            "
-          />
-        </div>
-        
-        <p style="
-          margin: 8px 0 0 24px; 
-          font-size: 0.9rem; 
-          color: var(--text-secondary); 
-          font-style: italic;
-        ">
-          Recommended for large manuscripts (50+ images) to avoid browser memory issues.
-        </p>
-      </div>
+          </select>
           </select>
 
       <!-- Actions Section -->
@@ -812,12 +737,11 @@
     <div id="footer">© 2025 Kyrie Bouressa | IIIF Manifest Viewer</div>
 
     <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/jszip-utils@0.1.0/dist/jszip-utils.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/he/he.js"></script>
     <script src="main.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+    
   </body>
 </html>
