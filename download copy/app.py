@@ -1,49 +1,78 @@
 # -*- coding: utf-8 -*-
-import os, time
+import os
+import time
+import logging
+import threading
 import requests
-from functools import lru_cache
-from urllib.parse import quote, unquote
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib.parse import quote, unquote, urlparse
 import re
 
 from flask import Flask, request, Response, abort
+from werkzeug.utils import secure_filename
 
-# ---- simple rate-limiter ----
-MIN_SECONDS_BETWEEN_CALLS = 12   # ~5 requests/min
+# ---- logging / config ----
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(message)s")
+
+# ---- simple thread-safe rate-limiter ----
+MIN_SECONDS_BETWEEN_CALLS = int(os.environ.get("MIN_SECONDS_BETWEEN_CALLS", "12"))
 _last_call = 0.0
+_last_call_lock = threading.Lock()
 
 def wait_if_needed():
+    """Sleep to enforce a minimum time between upstream requests (thread-safe)."""
     global _last_call
-    elapsed = time.time() - _last_call
-    if elapsed < MIN_SECONDS_BETWEEN_CALLS:
-        time.sleep(MIN_SECONDS_BETWEEN_CALLS - elapsed)
-    _last_call = time.time()
+    with _last_call_lock:
+        elapsed = time.time() - _last_call
+        if elapsed < MIN_SECONDS_BETWEEN_CALLS:
+            sleep_time = MIN_SECONDS_BETWEEN_CALLS - elapsed
+            logging.info("Rate limiter sleeping for %.2fs", sleep_time)
+            time.sleep(sleep_time)
+        _last_call = time.time()
 
 # ---- Flask app ----
 app = Flask(__name__)
 
-@lru_cache(maxsize=1024)          # basic in-memory cache
+# Use a session with retries and connection pooling for better performance
+session = requests.Session()
+retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504], respect_retry_after_header=True)
+adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+session.mount("http://", adapter)
+session.mount("https://", adapter)
+
+
 def fetch_from_server(url):
-    """Generic fetch function for any IIIF server"""
+    """Generic fetch function for any IIIF server. Returns a streaming requests.Response.
+
+    Note: callers are responsible for consuming/closing the response.
+    """
     wait_if_needed()
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'image/jpeg,image/png,image/*,*/*',
+        'User-Agent': 'Mozilla/5.0 (compatible; iiif-proxy/1.0)',
+        'Accept': 'image/*,*/*',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
     }
-    
+
     try:
-        r = requests.get(url, timeout=30, headers=headers, allow_redirects=True)
+        r = session.get(url, timeout=30, headers=headers, allow_redirects=True, stream=True)
         if r.status_code == 429:
-            abort(503, "Rate-limit hit, retry later")
-        if r.status_code != 200:
-            print(f"Failed to fetch {url}: {r.status_code}")
+            retry_after = r.headers.get('Retry-After')
+            msg = "Rate-limit hit"
+            if retry_after:
+                msg += f", retry after {retry_after}"
+            logging.warning(msg + " for %s", url)
+            abort(503, msg)
+        try:
+            r.raise_for_status()
+        except requests.HTTPError as e:
+            logging.warning("Failed to fetch %s: %s", url, e)
             abort(r.status_code)
-        return r.content
+        return r
     except requests.exceptions.RequestException as e:
-        print(f"Request failed for {url}: {e}")
+        logging.exception("Request failed for %s", url)
         abort(500, f"Request failed: {str(e)}")
 
 @app.route("/")
@@ -72,6 +101,37 @@ def download():
         abort(400, "ark and f are required query parameters")
     
     # Try multiple URL patterns for CNRS
+    def is_likely_image(resp):
+        ct = (resp.headers.get('Content-Type') or '').lower()
+        if not ct.startswith('image/'):
+            return False
+        cl = resp.headers.get('Content-Length')
+        try:
+            if cl and int(cl) < 5000:
+                return False
+        except ValueError:
+            pass
+        return True
+
+    def stream_response(resp, filename, fallback_mimetype='image/jpeg'):
+        mimetype = resp.headers.get('Content-Type') or fallback_mimetype
+        safe_name = secure_filename(filename)
+
+        def generate():
+            try:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+
+        return Response(generate(), mimetype=mimetype,
+                        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
+
+    # Try multiple URL patterns for CNRS
     if ark.startswith("63955/"):  # CNRS pattern
         url_patterns = [
             f"https://iiif.irht.cnrs.fr/iiif/ark:/{quote(ark)}/f{fol}/{size}/full/0/default.jpg",
@@ -83,20 +143,23 @@ def download():
         
         for iiif_url in url_patterns:
             try:
-                data = fetch_from_server(iiif_url)
-                if len(data) > 5000:  # Got actual image data
-                    break
-            except:
+                resp = fetch_from_server(iiif_url)
+                if is_likely_image(resp):
+                    filename = f"{ark.split('/')[-1]}_f{fol}.jpg"
+                    return stream_response(resp, filename)
+                else:
+                    resp.close()
+            except Exception:
                 continue
         else:
             abort(404, "No working URL found for this CNRS image")
     else:  # Assume Gallica
         iiif_url = f"https://gallica.bnf.fr/iiif/ark:/{quote(ark)}/f{fol}/{size}/full/0/default.jpg"
-        data = fetch_from_server(iiif_url)
-    
-    filename = f"{ark.split('/')[-1]}_f{fol}.jpg"
-    return Response(data, mimetype="image/jpeg", 
-                   headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        resp = fetch_from_server(iiif_url)
+        if not (resp and resp.headers.get('Content-Type', '').startswith('image/')):
+            abort(404, "No image returned from Gallica")
+        filename = f"{ark.split('/')[-1]}_f{fol}.jpg"
+        return stream_response(resp, filename)
 
 @app.route("/proxy")
 def proxy():
@@ -109,30 +172,45 @@ def proxy():
     
     # Decode if URL-encoded
     url = unquote(url)
-    
-    print(f"Proxying request to: {url}")
-    
+
+    logging.info("Proxying request to: %s", url)
+
+    # Optional host whitelist (comma-separated) to avoid acting as an open proxy
+    allowed = os.environ.get('ALLOWED_HOSTS')
+    if allowed:
+        hostname = urlparse(url).hostname or ''
+        allowed_hosts = [h.strip() for h in allowed.split(',') if h.strip()]
+        if not any(hostname.endswith(a) for a in allowed_hosts):
+            logging.warning("Blocked proxy request to disallowed host: %s", hostname)
+            abort(403, "Host not allowed")
+
     try:
-        data = fetch_from_server(url)
-        
-        # Determine content type based on URL or content
-        content_type = "image/jpeg"  # default
-        if url.lower().endswith('.png'):
-            content_type = "image/png"
-        elif url.lower().endswith('.gif'):
-            content_type = "image/gif"
-        elif url.lower().endswith('.webp'):
-            content_type = "image/webp"
-        
-        # Extract filename from URL
+        resp = fetch_from_server(url)
+
+        # Determine content type from response header first
+        content_type = resp.headers.get('Content-Type') or 'application/octet-stream'
+
+        # Extract filename from URL and sanitize it
         filename = url.split('/')[-1]
         if '?' in filename:
             filename = filename.split('?')[0]
         if not filename or '.' not in filename:
-            filename = "image.jpg"
-        
+            filename = 'image'
+        filename = secure_filename(filename)
+
+        def generate():
+            try:
+                for chunk in resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        yield chunk
+            finally:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+
         return Response(
-            data,
+            generate(),
             mimetype=content_type,
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
@@ -142,7 +220,7 @@ def proxy():
             }
         )
     except Exception as e:
-        print(f"Proxy error: {e}")
+        logging.exception("Proxy error for %s", url)
         abort(500, f"Proxy error: {str(e)}")
 
 @app.route("/columbia")
@@ -173,19 +251,34 @@ def columbia():
     
     for iiif_url in url_patterns:
         try:
-            print(f"Trying Columbia URL: {iiif_url}")
-            data = fetch_from_server(iiif_url)
-            if len(data) > 5000:  # Got actual image data
+            logging.info("Trying Columbia URL: %s", iiif_url)
+            resp = fetch_from_server(iiif_url)
+            ct = resp.headers.get('Content-Type', '')
+            cl = resp.headers.get('Content-Length')
+            if ct.startswith('image/') and not (cl and int(cl) < 5000):
                 filename = f"columbia_{doc_id.replace('/', '_')}_p{canvas}.jpg"
+                mimetype = resp.headers.get('Content-Type') or 'image/jpeg'
+
+                def generate():
+                    try:
+                        for chunk in resp.iter_content(chunk_size=8192):
+                            if chunk:
+                                yield chunk
+                    finally:
+                        try:
+                            resp.close()
+                        except Exception:
+                            pass
+
                 return Response(
-                    data,
-                    mimetype="image/jpeg",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                    generate(),
+                    mimetype=mimetype,
+                    headers={"Content-Disposition": f'attachment; filename="{secure_filename(filename)}"'}
                 )
         except Exception as e:
-            print(f"Failed URL {iiif_url}: {e}")
+            logging.warning("Failed URL %s: %s", iiif_url, e)
             continue
-    
+
     abort(404, "No working URL found for this Columbia image")
 
 # CORS support for all routes
@@ -197,4 +290,6 @@ def after_request(response):
     return response
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get('PORT', '5000'))
+    debug = os.environ.get('DEBUG', 'false').lower() in ('1', 'true')
+    app.run(debug=debug, port=port)
