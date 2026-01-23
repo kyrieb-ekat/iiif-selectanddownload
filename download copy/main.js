@@ -920,11 +920,55 @@ async function downloadSelectedChunked(selectedImages, chunkSize, isGallica) {
     showMessage(`Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} images)...`);
     
     try {
-      if (isGallica) {
-        await downloadChunkSequential(chunk, chunkNumber, chunkIndex, totalChunks);
-      } else {
-        await downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks);
+      // Use a web worker to download and zip this chunk to keep UI responsive
+      const worker = new Worker('download-worker.js');
+
+      const chunkData = chunk.map((img, idx) => ({
+        label: img.label,
+        filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.jpg',
+        urls: buildUrlsToTry(img, idx),
+      }));
+
+      const workerResult = await new Promise((resolve, reject) => {
+        let lastProgress = 0;
+        worker.onmessage = (ev) => {
+          const msg = ev.data;
+          if (!msg) return;
+          if (msg.type === 'progress') {
+            updateDetailedProgress(msg.completed, msg.total, msg.currentAction || 'Downloading chunk', Date.now(), 0, msg.bytesDownloaded, msg.estimatedTotalBytes);
+            const pct = msg.total > 0 ? (msg.completed / msg.total) * 100 : 0;
+            // map chunk-level progress into overall progress for UI
+            const overallPct = ((chunkIndex + (pct/100)) / totalChunks) * 100;
+            updateProgress(overallPct);
+            lastProgress = overallPct;
+          } else if (msg.type === 'zip-progress') {
+            // show zip generation progress (map to small portion)
+            updateDetailedProgress(msg.completed || 0, chunk.length, `Zipping: ${Math.round(msg.percent)}%`, Date.now(), 0);
+          } else if (msg.type === 'done') {
+            resolve(msg);
+          } else if (msg.type === 'error') {
+            reject(new Error(msg.message || 'Worker error'));
+          }
+        };
+
+        worker.onerror = (e) => reject(e.error || new Error('Worker error'));
+
+        worker.postMessage({ cmd: 'downloadChunk', chunk: chunkData, chunkNumber, totalChunks, options: { isGallica } });
+      });
+
+      // Save returned blob(s)
+      if (workerResult && workerResult.blob) {
+        const filename = `images_chunk_${chunkNumber.toString().padStart(3,'0')}.zip`;
+        saveAs(workerResult.blob, filename);
+      } else if (workerResult && workerResult.downloaded != null) {
+        // If worker sent counts and blob via msg.blob
+        if (workerResult.blob) {
+          const filename = `images_chunk_${chunkNumber.toString().padStart(3,'0')}.zip`;
+          saveAs(workerResult.blob, filename);
+        }
       }
+      // terminate worker
+      try { worker.terminate(); } catch(e){}
       
       overallProgress = (chunkNumber / totalChunks) * 100;
       updateProgress(overallProgress);
@@ -1103,7 +1147,7 @@ async function saveChunkZip(zip, chunkNumber, count, errors, totalInChunk) {
 }
 
 // --- Parallel Download with Enhanced Progress ---
-function downloadSelectedParallel(selectedImages) {
+async function downloadSelectedParallel(selectedImages) {
   var zip = new JSZip();
   var count = 0;
   var errors = 0;
@@ -1115,13 +1159,22 @@ function downloadSelectedParallel(selectedImages) {
 
   console.log(`Starting parallel download of ${selectedImages.length} images...`);
 
-  selectedImages.forEach(function (img, index) {
+  // Probe for sizes using HEAD/info.json where possible to estimate ETA
+  let sizes = await gatherSizesForImages(selectedImages);
+  let knownTotal = sizes.filter(s => s && !isNaN(s)).reduce((a,b)=>a+(b||0), 0);
+  let knownCount = sizes.filter(s => s && !isNaN(s)).length;
+  const avgSize = knownCount > 0 ? Math.round(knownTotal / knownCount) : 500000; // default 500KB
+  const estimatedTotalBytes = knownTotal + (selectedImages.length - knownCount) * avgSize;
+  let bytesDownloaded = 0;
+
+  // Use for-loop with concurrency via promises to allow awaiting fetchBinary
+  const tasks = selectedImages.map((img, index) => (async () => {
     if (!img || !img.url) {
       console.error(`Image at index ${index} is invalid:`, img);
       errors++;
       count++;
       updateProgress((count / selectedImages.length) * 100);
-      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${index}`, startTime, errors);
+      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${index}`, startTime, errors, bytesDownloaded, estimatedTotalBytes);
       
       if (count === selectedImages.length) {
         completeZipDownload(zip, count, errors, selectedImages.length);
@@ -1135,63 +1188,62 @@ function downloadSelectedParallel(selectedImages) {
     const urlsToTry = buildUrlsToTry(img, index);
     let attemptIndex = 0;
 
-    function tryDownload() {
+    // Try attempts sequentially with fetchBinary
+    for (;;) {
       if (attemptIndex >= urlsToTry.length) {
         errors++;
         console.error(`❌ All ${urlsToTry.length} download attempts failed for ${filename}`);
         count++;
         updateProgress((count / selectedImages.length) * 100);
-        updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors);
+        updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors, bytesDownloaded, estimatedTotalBytes);
 
         if (count === selectedImages.length) {
           completeZipDownload(zip, count, errors, selectedImages.length);
         }
-        return;
+        break;
       }
 
       const currentUrl = urlsToTry[attemptIndex];
       console.log(`🔄 Attempt ${attemptIndex + 1}/${urlsToTry.length} for ${filename}: ${currentUrl.substring(0, 60)}...`);
-      
-      updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${attemptIndex + 1}/${urlsToTry.length})`, startTime, errors);
+      updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${attemptIndex + 1}/${urlsToTry.length})`, startTime, errors, bytesDownloaded, estimatedTotalBytes);
 
-      JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
-        if (err) {
-          console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
-          attemptIndex++;
-          
-          // Add a small delay between attempts
-          setTimeout(tryDownload, 500);
-          return;
-        }
-
-        console.log(`✅ Downloaded ${filename}:`, typeof data, data.length || data.byteLength, 'bytes');
-
+      try {
+        const data = await fetchBinary(currentUrl);
         let binaryData = processBinaryData(data);
+        const actualBytes = binaryData.length || (binaryData.byteLength || 0);
 
-        // Check if we got actual image data
-        if (binaryData.length > 5000) {
+        if (actualBytes > 5000) {
           zip.file(filename, binaryData, { binary: true });
-          console.log(`📁 Added ${filename} to zip: ${binaryData.length} bytes`);
-          
+          bytesDownloaded += actualBytes;
+          img._size = actualBytes;
+          console.log(`📁 Added ${filename} to zip: ${actualBytes} bytes`);
+
           count++;
           updateProgress((count / selectedImages.length) * 100);
-          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors);
+          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors, bytesDownloaded, estimatedTotalBytes);
 
           if (count === selectedImages.length) {
             completeZipDownload(zip, count, errors, selectedImages.length);
           }
+          break;
         } else {
-          console.log(`⚠️ Data too small for ${filename} (${binaryData.length} bytes), trying next URL...`);
+          console.log(`⚠️ Data too small for ${filename} (${actualBytes} bytes), trying next URL...`);
           attemptIndex++;
-          setTimeout(tryDownload, 500);
-          return;
+          await sleep(300);
+          continue;
         }
-      });
+      } catch (err) {
+        console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
+        attemptIndex++;
+        await sleep(300);
+        continue;
+      }
     }
-
-    tryDownload();
   });
 }
+
+  // await all tasks
+  await Promise.all(tasks);
 
 // --- Sequential Download with Enhanced Progress ---
 async function downloadSelectedSequential(selectedImages) {
@@ -1269,7 +1321,7 @@ async function downloadSelectedSequential(selectedImages) {
 }
 
 // --- Enhanced Progress Functions ---
-function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0) {
+function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0, bytesDownloaded = null, estimatedTotalBytes = null) {
   let detailedProgress = document.getElementById("detailed_progress");
 
   if (!detailedProgress) {
@@ -1296,12 +1348,21 @@ function showDetailedProgress(completed, total, currentAction, startTime = null,
   const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   let timeInfo = "";
 
-  if (startTime && completed > 0) {
+  if (startTime) {
     const elapsed = (Date.now() - startTime) / 1000;
-    const avgTime = elapsed / completed;
-    const remaining = (total - completed) * avgTime;
-    const eta = remaining > 0 ? `ETA: ${formatTime(remaining)}` : "Almost done!";
-    timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
+
+    if (bytesDownloaded !== null && estimatedTotalBytes !== null && bytesDownloaded > 0) {
+      const remainingBytes = Math.max(0, estimatedTotalBytes - bytesDownloaded);
+      const speed = bytesDownloaded / Math.max(1, elapsed); // bytes per second
+      const remainingSeconds = speed > 0 ? remainingBytes / speed : null;
+      const eta = remainingSeconds ? `ETA: ${formatTime(remainingSeconds)}` : "Estimating...";
+      timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
+    } else if (completed > 0) {
+      const avgTime = elapsed / completed;
+      const remaining = (total - completed) * avgTime;
+      const eta = remaining > 0 ? `ETA: ${formatTime(remaining)}` : "Almost done!";
+      timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
+    }
   }
 
   let statusHtml = `
@@ -1333,11 +1394,26 @@ function showDetailedProgress(completed, total, currentAction, startTime = null,
     `;
   }
 
+  if (bytesDownloaded !== null && estimatedTotalBytes !== null) {
+    statusHtml += `
+      <div style="color: var(--text-secondary); font-size: 12px; margin-top:6px;">
+        ${humanFileSize(bytesDownloaded)} / ${humanFileSize(estimatedTotalBytes)} transferred
+      </div>
+    `;
+  }
+
   detailedProgress.innerHTML = statusHtml;
 }
 
-function updateDetailedProgress(completed, total, currentAction, startTime, failed = 0) {
-  showDetailedProgress(completed, total, currentAction, startTime, failed);
+function updateDetailedProgress(completed, total, currentAction, startTime, failed = 0, bytesDownloaded = null, estimatedTotalBytes = null) {
+  showDetailedProgress(completed, total, currentAction, startTime, failed, bytesDownloaded, estimatedTotalBytes);
+}
+
+function humanFileSize(bytes) {
+  if (bytes === 0) return '0 B';
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const sizes = ['B','KB','MB','GB','TB'];
+  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + sizes[i];
 }
 
 function formatTime(seconds) {
@@ -1431,11 +1507,9 @@ function sleep(ms) {
 }
 
 function fetchBinary(url) {
-  return new Promise((resolve, reject) => {
-    JSZipUtils.getBinaryContent(url, function (err, data) {
-      if (err) reject(err);
-      else resolve(data);
-    });
+  return fetch(url, { method: 'GET' }).then(async (resp) => {
+    if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+    return await resp.arrayBuffer();
   });
 }
 
