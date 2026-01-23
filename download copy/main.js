@@ -1,4 +1,46 @@
 var images = []; // Stores image data for display and download
+var downloadWorker = null;
+
+function initDownloadWorkerIfNeeded() {
+  if (downloadWorker) return;
+  try {
+    downloadWorker = new Worker('download-worker.js');
+  } catch (e) {
+    console.error('Failed to create download worker:', e);
+    downloadWorker = null;
+    return;
+  }
+
+  downloadWorker.onmessage = function (ev) {
+    const data = ev.data || {};
+    if (data.status === 'progress') {
+      // Update progress UI; handle chunk info if present
+      const completed = data.completed || 0;
+      const total = data.total || 0;
+      const failed = data.failed || 0;
+      const current = data.current || '';
+      const chunkIndex = data.chunkIndex;
+      const totalChunks = data.totalChunks;
+      const overallLabel = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
+      showDetailedProgress(completed, total, overallLabel, Date.now(), failed);
+      updateProgress((completed / total) * 100);
+    } else if (data.status === 'done') {
+      // Received a zip blob
+      const blob = data.blob;
+      const name = data.name || 'selected_images.zip';
+      try {
+        saveAs(blob, name);
+        showMessage(`Downloaded ${name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
+      } catch (e) {
+        console.error('Error saving blob:', e);
+        showMessage('Download complete, but saving failed');
+      }
+    } else if (data.status === 'error') {
+      console.error('Worker error:', data.message);
+      showMessage('Download worker error: ' + (data.message || 'unknown'));
+    }
+  };
+}
 
 // Helper function to safely extract label text from IIIF manifest labels
 function extractLabelText(label, fallback = "Untitled") {
@@ -881,18 +923,29 @@ async function downloadSelected() {
   console.log("Chunk size:", chunkSize);
   console.log("Gallica rate limiting:", isGallica);
   console.log("Total images to download:", selectedImages.length);
+  // Prepare images for the worker: compute URLs to try for each image
+  const imagesForWorker = selectedImages.map((img, idx) => {
+    const urls = buildUrlsToTry(img, idx);
+    return {
+      label: img.label,
+      filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.jpg',
+      urls: urls,
+    };
+  });
 
-  if (shouldChunk && selectedImages.length > chunkSize) {
-    console.log("Using chunked download");
-    await downloadSelectedChunked(selectedImages, chunkSize, isGallica);
-  } else {
-    console.log("Using regular download");
-    if (isGallica) {
-      await downloadSelectedSequential(selectedImages);
-    } else {
-      await downloadSelectedParallel(selectedImages);
-    }
+  initDownloadWorkerIfNeeded();
+  if (!downloadWorker) {
+    showMessage('Download worker unavailable; cannot proceed.');
+    return;
   }
+
+  showMessage('Starting download in background worker...');
+  resetProgress();
+  downloadWorker.postMessage({
+    cmd: 'download',
+    images: imagesForWorker,
+    options: { shouldChunk: shouldChunk, chunkSize: chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' },
+  });
 }
 
 // --- Chunked Download Function ---
@@ -1046,14 +1099,7 @@ async function downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks
 
         const currentUrl = urlsToTry[attemptIndex];
 
-        JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
-          if (err) {
-            console.log(`❌ Chunk ${chunkNumber}: Attempt ${attemptIndex + 1} failed for ${filename}`);
-            attemptIndex++;
-            setTimeout(tryDownload, 500);
-            return;
-          }
-
+        fetchBinary(currentUrl).then(function(data) {
           let binaryData = processBinaryData(data);
 
           if (binaryData.length > 5000) {
@@ -1073,6 +1119,10 @@ async function downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks
               .then(resolve)
               .catch(reject);
           }
+        }).catch(function(err){
+          console.log(`❌ Chunk ${chunkNumber}: Attempt ${attemptIndex + 1} failed for ${filename}`);
+          attemptIndex++;
+          setTimeout(tryDownload, 500);
         });
       }
 
@@ -1154,17 +1204,8 @@ function downloadSelectedParallel(selectedImages) {
       
       updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${attemptIndex + 1}/${urlsToTry.length})`, startTime, errors);
 
-      JSZipUtils.getBinaryContent(currentUrl, function (err, data) {
-        if (err) {
-          console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
-          attemptIndex++;
-          
-          // Add a small delay between attempts
-          setTimeout(tryDownload, 500);
-          return;
-        }
-
-        console.log(`✅ Downloaded ${filename}:`, typeof data, data.length || data.byteLength, 'bytes');
+      fetchBinary(currentUrl).then(function(data) {
+        console.log(`✅ Downloaded ${filename}:`, typeof data, data.byteLength || data.length, 'bytes');
 
         let binaryData = processBinaryData(data);
 
@@ -1186,6 +1227,10 @@ function downloadSelectedParallel(selectedImages) {
           setTimeout(tryDownload, 500);
           return;
         }
+      }).catch(function(err){
+        console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
+        attemptIndex++;
+        setTimeout(tryDownload, 500);
       });
     }
 
@@ -1363,6 +1408,14 @@ function processBinaryData(data) {
   return binaryData;
 }
 
+// Fetch binary via modern Fetch API returning an ArrayBuffer
+function fetchBinary(url) {
+  return fetch(url, { mode: 'cors' }).then((resp) => {
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return resp.arrayBuffer();
+  });
+}
+
 // --- Complete Single Zip Download ---
 async function completeZipDownload(zip, count, errors, totalImages) {
   const successCount = count - errors;
@@ -1430,14 +1483,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function fetchBinary(url) {
-  return new Promise((resolve, reject) => {
-    JSZipUtils.getBinaryContent(url, function (err, data) {
-      if (err) reject(err);
-      else resolve(data);
-    });
-  });
-}
+
 
 // --- Event Listeners ---
 document.addEventListener("DOMContentLoaded", function () {
