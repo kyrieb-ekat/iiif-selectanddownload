@@ -1,5 +1,308 @@
 var images = []; // Stores image data for display and download
 
+// Helper function to safely extract label text from IIIF manifest labels
+function extractLabelText(label, fallback = "Untitled") {
+  if (!label) return fallback;
+  
+  // If it's already a string, return it
+  if (typeof label === 'string') {
+    return label;
+  }
+  
+  // Handle IIIF Presentation 3.0 format: {"en": ["Label text"]} or {"@none": ["Label"]}
+  if (typeof label === 'object' && !Array.isArray(label)) {
+    // Try to get English first
+    if (label.en && Array.isArray(label.en) && label.en.length > 0) {
+      return label.en[0];
+    }
+    
+    // Try @none (language-neutral)
+    if (label['@none'] && Array.isArray(label['@none']) && label['@none'].length > 0) {
+      return label['@none'][0];
+    }
+    
+    // Try any available language
+    const keys = Object.keys(label);
+    if (keys.length > 0) {
+      const firstKey = keys[0];
+      if (Array.isArray(label[firstKey]) && label[firstKey].length > 0) {
+        return label[firstKey][0];
+      }
+    }
+  }
+  
+  // Handle arrays directly
+  if (Array.isArray(label) && label.length > 0) {
+    return label[0];
+  }
+  
+  // If all else fails, try to convert to string
+  try {
+    return String(label);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+// Enhanced buildProxyUrl function with Columbia University support
+function buildProxyUrl(iiifBase) {
+  // Check if this is a Columbia University URL
+  if (iiifBase && iiifBase.includes("dlc.library.columbia.edu")) {
+    console.log("Detected Columbia University URL, using local proxy");
+    
+    // Extract document ID from Columbia IIIF URL
+    // Example: https://dlc.library.columbia.edu/iiif/2/10.7916%2FD8892P87/canvas/1/full/max/0/default.jpg
+    const columbiaMatch = iiifBase.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
+    if (columbiaMatch) {
+      const docId = decodeURIComponent(columbiaMatch[1]);
+      const canvas = columbiaMatch[2];
+      return `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`;
+    }
+    
+    // Fallback: use generic proxy
+    return `http://localhost:5000/proxy?url=${encodeURIComponent(iiifBase + '/full/max/0/default.jpg')}`;
+  }
+  
+  // Check if this is a CNRS URL that might need proxying
+  if (iiifBase && iiifBase.includes("iiif.irht.cnrs.fr")) {
+    // For CNRS URLs, try to extract ARK and folio info
+    const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
+    const folioMatch = iiifBase.match(/\/f(\d+)/);
+    
+    if (arkMatch && folioMatch) {
+      const ark = arkMatch[1];
+      const folio = folioMatch[1];
+      return `http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${folio}&size=full`;
+    }
+  }
+  
+  // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
+  const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
+  const pageMatch = iiifBase.match(/\/f(\d+)/);
+  if (arkMatch && pageMatch) {
+    const ark = arkMatch[1];
+    const page = pageMatch[1];
+    return `http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`;
+  }
+  
+  return null; // not a recognized IIIF URL → fall back to direct
+}
+
+// Enhanced buildUrlsToTry function with Columbia support
+function buildUrlsToTry(img, index) {
+  const urlsToTry = [];
+  
+  console.log(`Building URLs for image ${index}:`, img);
+  
+  // 1. Try proxy first if available
+  if (img.proxy) {
+    urlsToTry.push(img.proxy);
+    console.log(`Added proxy URL: ${img.proxy}`);
+  }
+  
+  // 2. For Columbia University URLs, add multiple proxy attempts
+  if (img.url && img.url.includes("dlc.library.columbia.edu")) {
+    console.log(`Detected Columbia University URL: ${img.url}`);
+    
+    // Try to extract document ID and canvas number
+    const columbiaMatch = img.url.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
+    if (columbiaMatch) {
+      const docId = decodeURIComponent(columbiaMatch[1]);
+      const canvas = columbiaMatch[2];
+      
+      // Add specific Columbia proxy URLs
+      urlsToTry.push(
+        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`,
+        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=2000`,
+        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1500`,
+        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1000`
+      );
+    }
+    
+    // Generic proxy fallback for Columbia URLs
+    urlsToTry.push(
+      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`,
+      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/max/'))}`,
+      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/2000,/'))}`,
+      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/1500,/'))}`
+    );
+    
+    // Also try direct URL (might work in some cases)
+    urlsToTry.push(img.url);
+    
+    console.log(`Columbia URLs to try (first 5):`, urlsToTry.slice(0, 5));
+    
+    return [...new Set(urlsToTry)]; // Remove duplicates and return
+  }
+  
+  // 3. Add the primary URL first (for non-Columbia URLs)
+  if (img.url) {
+    urlsToTry.push(img.url);
+  }
+  
+  // 4. Montecassino/Vatican Digital Library specific handling
+  if (img.url && (img.url.includes("omnes.dbseret.com") || img.url.includes("montecassino") || img.url.includes("vatlib") || img.url.includes("digi.vatlib") || img.url.includes("vatican"))) {
+    console.log(`Detected Montecassino/Vatican URL: ${img.url}`);
+    
+    if (img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+      
+      // Montecassino/Vatican specific patterns
+      urlsToTry.push(
+        // Standard IIIF patterns that Vatican/Montecassino typically supports
+        `${baseUrl}/full/full/0/default.jpg`,
+        `${baseUrl}/full/max/0/default.jpg`,
+        `${baseUrl}/full/full/0/native.jpg`,
+        `${baseUrl}/full/max/0/native.jpg`,
+        
+        // Try removing the current size parameters and using standard ones
+        `${baseUrl}/full/1200,/0/default.jpg`,
+        `${baseUrl}/full/800,/0/default.jpg`,
+        `${baseUrl}/full/600,/0/default.jpg`,
+        `${baseUrl}/full/400,/0/default.jpg`,
+        
+        // Try height-based sizing
+        `${baseUrl}/full/,1200/0/default.jpg`,
+        `${baseUrl}/full/,800/0/default.jpg`,
+        `${baseUrl}/full/,600/0/default.jpg`,
+        
+        // Try exact dimensions that Vatican often uses
+        `${baseUrl}/full/800,1067/0/default.jpg`,
+        `${baseUrl}/full/600,800/0/default.jpg`,
+        `${baseUrl}/full/1200,1600/0/default.jpg`,
+        
+        // Try without rotation parameter (remove /0/)
+        `${baseUrl}/full/full/default.jpg`,
+        `${baseUrl}/full/max/default.jpg`,
+        `${baseUrl}/full/1200,/default.jpg`,
+        `${baseUrl}/full/800,/default.jpg`,
+        
+        // Try different quality/format parameters
+        `${baseUrl}/full/full/0/color.jpg`,
+        `${baseUrl}/full/max/0/color.jpg`,
+        `${baseUrl}/full/full/0/gray.jpg`,
+        `${baseUrl}/full/full/0/bitonal.jpg`,
+        
+        // Try the base URL directly
+        baseUrl,
+        `${baseUrl}.jpg`,
+        
+        // Try legacy IIIF 1.0 patterns
+        `${baseUrl}/full/0/native.jpg`,
+        `${baseUrl}/full/0/default.jpg`,
+        `${baseUrl}/full/native.jpg`,
+        `${baseUrl}/full/default.jpg`,
+        
+        // Try different rotation values
+        `${baseUrl}/full/full/90/default.jpg`,
+        `${baseUrl}/full/full/180/default.jpg`,
+        `${baseUrl}/full/full/270/default.jpg`,
+        
+        // Try removing URL encoding issues
+        img.url.replace(/%5B/g, '[').replace(/%5D/g, ']'),
+        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/full/0/default.jpg`,
+        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/max/0/default.jpg`,
+        
+        // Try alternative path structures sometimes used by Vatican systems
+        `${baseUrl.replace('/iiif/2/', '/iiif/')}/full/full/0/default.jpg`,
+        `${baseUrl.replace('/iiif/2/', '/images/')}/full/full/0/default.jpg`,
+        `${baseUrl.replace('/iiif/', '/images/')}/full/full/0/default.jpg`
+      );
+    } else {
+      // If no /full/ in URL, try adding IIIF parameters
+      urlsToTry.push(
+        `${img.url}/full/full/0/default.jpg`,
+        `${img.url}/full/max/0/default.jpg`,
+        `${img.url}/full/1200,/0/default.jpg`,
+        `${img.url}/full/800,/0/default.jpg`
+      );
+    }
+  }
+  // 5. For CNRS URLs
+  else if (img.url && img.url.includes("iiif.irht.cnrs.fr")) {
+    console.log(`Detected CNRS URL: ${img.url}`);
+    
+    const baseUrl = img.url.split("/full/")[0];
+    
+    urlsToTry.push(
+      `${baseUrl}/full/full/0/default.jpg`,
+      `${baseUrl}/full/max/0/default.jpg`,
+      `${baseUrl}/full/1200,/0/default.jpg`,
+      `${baseUrl}/full/800,/0/default.jpg`,
+      `${baseUrl}/full/600,/0/default.jpg`,
+      `${baseUrl}/full/400,/0/default.jpg`,
+      `${baseUrl}/full/full/90/default.jpg`,
+      `${baseUrl}/full/full/180/default.jpg`,
+      `${baseUrl}/full/full/270/default.jpg`,
+      `${baseUrl}/full/full/default.jpg`,
+      `${baseUrl}/full/max/default.jpg`,
+      baseUrl,
+      `${baseUrl}.jpg`,
+      `${baseUrl}/full/full/0/default.png`,
+      `${baseUrl}/full/max/0/default.png`,
+      `${baseUrl}/full/full/0/native.jpg`,
+      `${baseUrl}/full/max/0/native.jpg`,
+      `${baseUrl}/full/0/native.jpg`,
+      `${baseUrl}/full/0/default.jpg`
+    );
+  }
+  // 6. For Gallica URLs
+  else if (img.url && img.url.includes("gallica.bnf.fr")) {
+    console.log(`Detected Gallica URL: ${img.url}`);
+    
+    if (img.url.includes("/full/")) {
+      const baseUrl = img.url.split("/full/")[0];
+      
+      // Use local proxy for Gallica
+      const arkMatch = baseUrl.match(/ark:\/([^/]+\/[^/]+)/);
+      const pageMatch = baseUrl.match(/\/f(\d+)/);
+      if (arkMatch && pageMatch) {
+        const ark = arkMatch[1];
+        const page = pageMatch[1];
+        urlsToTry.unshift(`http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`);
+      }
+      
+      urlsToTry.push(
+        `${baseUrl}/full/full/0/native.jpg`,
+        `${baseUrl}/full/full/0/default.jpg`,
+        `${baseUrl}/full/max/0/native.jpg`,
+        `${baseUrl}/full/max/0/default.jpg`
+      );
+    }
+  }
+  // 7. For other IIIF URLs
+  else if (img.url && img.url.includes("/full/")) {
+    console.log(`Detected other IIIF URL: ${img.url}`);
+    
+    const baseUrl = img.url.split("/full/")[0];
+    
+    urlsToTry.push(
+      `${baseUrl}/full/max/0/default.jpg`,
+      `${baseUrl}/full/full/0/default.jpg`,
+      `${baseUrl}/full/2000,/0/default.jpg`,
+      `${baseUrl}/full/1500,/0/default.jpg`,
+      `${baseUrl}/full/1000,/0/default.jpg`,
+      `${baseUrl}/full/800,/0/default.jpg`,
+      baseUrl
+    );
+  }
+  // 8. For other IIIF URLs, add generic proxy as backup
+  else if (img.url && img.url.includes("/iiif/")) {
+    urlsToTry.push(`http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`);
+  }
+  
+  // Remove duplicates while preserving order
+  const uniqueUrls = [...new Set(urlsToTry)];
+  console.log(`Final URLs to try for image ${index} (${uniqueUrls.length} total):`, uniqueUrls);
+  
+  // Log the first few URLs for debugging
+  uniqueUrls.slice(0, 5).forEach((url, i) => {
+    console.log(`  ${i + 1}. ${url}`);
+  });
+  
+  return uniqueUrls;
+}
+
 // --- Core Function: Get and Display Manifest ---
 async function getManifest() {
   var url = document.getElementById("url").value;
@@ -26,32 +329,6 @@ async function getManifest() {
     console.log("Manifest loaded successfully:", manifest);
     document.getElementById("img-container").innerHTML = ""; // Clear previous images
     images = []; // Reset images array
-
-    function buildProxyUrl(iiifBase) {
-      // Check if this is a CNRS URL that might need proxying
-      if (iiifBase && iiifBase.includes("iiif.irht.cnrs.fr")) {
-        // For CNRS URLs, try to extract ARK and folio info
-        const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
-        const folioMatch = iiifBase.match(/\/f(\d+)/);
-        
-        if (arkMatch && folioMatch) {
-          const ark = arkMatch[1];
-          const folio = folioMatch[1];
-          return `/download?ark=${encodeURIComponent(ark)}&f=${folio}&size=full`;
-        }
-      }
-      
-      // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
-      const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
-      const pageMatch = iiifBase.match(/\/f(\d+)/);
-      if (arkMatch && pageMatch) {
-        const ark = arkMatch[1];
-        const page = pageMatch[1];
-        return `/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`;
-      }
-      
-      return null; // not a recognized IIIF URL → fall back to direct
-    }
 
     let canvases = [];
     let isIIIFP3 = false;
@@ -120,7 +397,7 @@ async function getManifest() {
       console.log("Processing canvas:", canvas);
       let thumbnailUrl = "";
       let fullImageUrlBase = "";
-      let imageLabel = he.decode(canvas.label || `Image ${index + 1}`);
+      let imageLabel = he.decode(extractLabelText(canvas.label, `Image ${index + 1}`));
 
       // Debug: Log the raw canvas structure
       console.log(`Canvas ${index} structure:`, {
@@ -218,7 +495,8 @@ async function getManifest() {
           fullImageUrlBase.match(/\/images\/.+\/?$/) ||
           fullImageUrlBase.match(/\/loris\/.+$/) ||
           fullImageUrlBase.includes("iiifimage") ||
-          fullImageUrlBase.includes("gallica.bnf.fr/iiif"))
+          fullImageUrlBase.includes("gallica.bnf.fr/iiif") ||
+          fullImageUrlBase.includes("dlc.library.columbia.edu"))
       ) {
         // Try different IIIF Image API parameters based on institution
         if (
@@ -230,6 +508,9 @@ async function getManifest() {
         } else if (fullImageUrlBase.includes("gallica.bnf.fr")) {
           // Gallica (French National Library) uses: /full/full/0/native.jpg
           downloadUrl = `${fullImageUrlBase}/full/full/0/native.jpg`;
+        } else if (fullImageUrlBase.includes("dlc.library.columbia.edu")) {
+          // Columbia University uses: /full/max/0/default.jpg
+          downloadUrl = `${fullImageUrlBase}/full/max/0/default.jpg`;
         } else if (fullImageUrlBase.includes("fragmentarium")) {
           // Fragmentarium might need different parameters
           downloadUrl = `${fullImageUrlBase}/full/full/0/default.jpg`;
@@ -488,8 +769,41 @@ function buildUrlsToTry(img, index) {
         `${baseUrl}/full/max/0/native.jpg`,
         `${baseUrl}/full/max/0/default.jpg`
       );
+    } 
+    // 6. For Columbia University URLs, add multiple proxy attempts
+    else if (img.url && img.url.includes("dlc.library.columbia.edu")) {
+      console.log(`Detected Columbia University URL: ${img.url}`);
+      
+      // Try to extract document ID and canvas number
+      const columbiaMatch = img.url.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
+      if (columbiaMatch) {
+        const docId = decodeURIComponent(columbiaMatch[1]);
+        const canvas = columbiaMatch[2];
+        
+        // Add specific Columbia proxy URLs
+        urlsToTry.push(
+          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`,
+          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=2000`,
+          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1500`,
+          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1000`
+        );
+      }
+      
+      // Generic proxy fallback for Columbia URLs
+      urlsToTry.push(
+        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`,
+        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/max/'))}`,
+        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/2000,/'))}`,
+        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/1500,/'))}`
+      );
+      
+      // Also try direct URL (might work in some cases)
+      urlsToTry.push(img.url);
+      
+      console.log(`Columbia URLs to try (first 5):`, urlsToTry.slice(0, 5));
+      
+      return [...new Set(urlsToTry)]; // Remove duplicates and return
     }
-  }
   // 6. For other IIIF URLs
   else if (img.url && img.url.includes("/full/")) {
     console.log(`Detected other IIIF URL: ${img.url}`);
@@ -522,6 +836,7 @@ function buildUrlsToTry(img, index) {
   });
   
   return uniqueUrls;
+}
 }
 // --- Download Selected Images (main entry point) ---
 async function downloadSelected() {
