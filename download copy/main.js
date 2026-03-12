@@ -1,6 +1,8 @@
 var images = []; // Stores image data for display and download
 var downloadWorker = null;
 
+// ─── Web Worker ───────────────────────────────────────────────────────────────
+
 function initDownloadWorkerIfNeeded() {
   if (downloadWorker) return;
   try {
@@ -14,23 +16,14 @@ function initDownloadWorkerIfNeeded() {
   downloadWorker.onmessage = function (ev) {
     const data = ev.data || {};
     if (data.status === 'progress') {
-      // Update progress UI; handle chunk info if present
-      const completed = data.completed || 0;
-      const total = data.total || 0;
-      const failed = data.failed || 0;
-      const current = data.current || '';
-      const chunkIndex = data.chunkIndex;
-      const totalChunks = data.totalChunks;
-      const overallLabel = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
-      showDetailedProgress(completed, total, overallLabel, Date.now(), failed);
+      const { completed = 0, total = 0, failed = 0, current = '', chunkIndex, totalChunks } = data;
+      const label = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
+      showDetailedProgress(completed, total, label, Date.now(), failed);
       updateProgress((completed / total) * 100);
     } else if (data.status === 'done') {
-      // Received a zip blob
-      const blob = data.blob;
-      const name = data.name || 'selected_images.zip';
       try {
-        saveAs(blob, name);
-        showMessage(`Downloaded ${name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
+        saveAs(data.blob, data.name || 'selected_images.zip');
+        showMessage(`Downloaded ${data.name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
       } catch (e) {
         console.error('Error saving blob:', e);
         showMessage('Download complete, but saving failed');
@@ -42,960 +35,424 @@ function initDownloadWorkerIfNeeded() {
   };
 }
 
-// Helper function to safely extract label text from IIIF manifest labels
+// ─── IIIF Label Extraction ────────────────────────────────────────────────────
+
 function extractLabelText(label, fallback = "Untitled") {
   if (!label) return fallback;
-  
-  // If it's already a string, return it
-  if (typeof label === 'string') {
-    return label;
+  if (typeof label === 'string') return label;
+  if (Array.isArray(label)) return label[0] ?? fallback;
+
+  // IIIF Presentation 3.0: { "en": ["text"], "@none": ["text"] }
+  if (typeof label === 'object') {
+    const value = label.en ?? label['@none'] ?? Object.values(label)[0];
+    if (Array.isArray(value) && value.length > 0) return value[0];
   }
-  
-  // Handle IIIF Presentation 3.0 format: {"en": ["Label text"]} or {"@none": ["Label"]}
-  if (typeof label === 'object' && !Array.isArray(label)) {
-    // Try to get English first
-    if (label.en && Array.isArray(label.en) && label.en.length > 0) {
-      return label.en[0];
-    }
-    
-    // Try @none (language-neutral)
-    if (label['@none'] && Array.isArray(label['@none']) && label['@none'].length > 0) {
-      return label['@none'][0];
-    }
-    
-    // Try any available language
-    const keys = Object.keys(label);
-    if (keys.length > 0) {
-      const firstKey = keys[0];
-      if (Array.isArray(label[firstKey]) && label[firstKey].length > 0) {
-        return label[firstKey][0];
-      }
-    }
-  }
-  
-  // Handle arrays directly
-  if (Array.isArray(label) && label.length > 0) {
-    return label[0];
-  }
-  
-  // If all else fails, try to convert to string
-  try {
-    return String(label);
-  } catch (e) {
-    return fallback;
-  }
+
+  try { return String(label); } catch { return fallback; }
 }
 
-// Enhanced buildProxyUrl function with Columbia University support
+// ─── Proxy URL Builder ────────────────────────────────────────────────────────
+
 function buildProxyUrl(iiifBase) {
-  // Check if this is a Columbia University URL
-  if (iiifBase && iiifBase.includes("dlc.library.columbia.edu")) {
-    console.log("Detected Columbia University URL, using local proxy");
-    
-    // Extract document ID from Columbia IIIF URL
-    // Example: https://dlc.library.columbia.edu/iiif/2/10.7916%2FD8892P87/canvas/1/full/max/0/default.jpg
-    const columbiaMatch = iiifBase.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
-    if (columbiaMatch) {
-      const docId = decodeURIComponent(columbiaMatch[1]);
-      const canvas = columbiaMatch[2];
-      return `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`;
+  if (!iiifBase) return null;
+
+  if (iiifBase.includes("dlc.library.columbia.edu")) {
+    const m = iiifBase.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
+    if (m) {
+      return `http://localhost:5000/columbia?id=${encodeURIComponent(decodeURIComponent(m[1]))}&canvas=${m[2]}&size=full`;
     }
-    
-    // Fallback: use generic proxy
     return `http://localhost:5000/proxy?url=${encodeURIComponent(iiifBase + '/full/max/0/default.jpg')}`;
   }
-  
-  // Check if this is a CNRS URL that might need proxying
-  if (iiifBase && iiifBase.includes("iiif.irht.cnrs.fr")) {
-    // For CNRS URLs, try to extract ARK and folio info
-    const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
-    const folioMatch = iiifBase.match(/\/f(\d+)/);
-    
-    if (arkMatch && folioMatch) {
-      const ark = arkMatch[1];
-      const folio = folioMatch[1];
-      return `http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${folio}&size=full`;
-    }
+
+  // ARK-based sources (Gallica, CNRS)
+  const ark = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
+  const folio = iiifBase.match(/\/f(\d+)/);
+  if (ark && folio) {
+    return `http://localhost:5000/download?ark=${encodeURIComponent(ark[1])}&f=${folio[1]}&size=full`;
   }
-  
-  // Works for Gallica: …/iiif/ark:/12148/btv1b55010551d/f39
-  const arkMatch = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
-  const pageMatch = iiifBase.match(/\/f(\d+)/);
-  if (arkMatch && pageMatch) {
-    const ark = arkMatch[1];
-    const page = pageMatch[1];
-    return `http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`;
-  }
-  
-  return null; // not a recognized IIIF URL → fall back to direct
+
+  return null;
 }
 
-// Enhanced buildUrlsToTry function with Columbia support
+// ─── URL Variant Generators ───────────────────────────────────────────────────
+
+function iiifVariants(baseUrl) {
+  const sizes   = ['max', 'full', '1200,', '800,', '600,', '400,', ',1200', ',800'];
+  const quality = ['default', 'native', 'color'];
+  const urls = [];
+  for (const size of sizes) {
+    for (const q of quality) {
+      urls.push(`${baseUrl}/full/${size}/0/${q}.jpg`);
+    }
+  }
+  // Legacy IIIF 1.0 and no-rotation variants
+  urls.push(
+    `${baseUrl}/full/full/default.jpg`,
+    `${baseUrl}/full/max/default.jpg`,
+    `${baseUrl}/full/0/native.jpg`,
+    `${baseUrl}/full/native.jpg`,
+    `${baseUrl}/full/default.jpg`,
+    baseUrl,
+    `${baseUrl}.jpg`
+  );
+  return urls;
+}
+
+function vaticanVariants(baseUrl, originalUrl) {
+  const base = iiifVariants(baseUrl);
+
+  // Alternative path structures used by Vatican/Montecassino systems
+  const pathAlts = [
+    baseUrl.replace('/iiif/2/', '/iiif/'),
+    baseUrl.replace('/iiif/2/', '/images/'),
+    baseUrl.replace('/iiif/', '/images/'),
+  ].filter(p => p !== baseUrl);
+
+  const altUrls = pathAlts.flatMap(p => [
+    `${p}/full/full/0/default.jpg`,
+    `${p}/full/max/0/default.jpg`,
+  ]);
+
+  // URL-encoding fixes sometimes needed for Vatican systems
+  const decoded = originalUrl.replace(/%5B/g, '[').replace(/%5D/g, ']');
+  const decodedBase = decoded.includes('/full/') ? decoded.split('/full/')[0] : decoded;
+  const decodeAlts = decodedBase !== baseUrl ? [
+    decoded,
+    `${decodedBase}/full/full/0/default.jpg`,
+    `${decodedBase}/full/max/0/default.jpg`,
+  ] : [];
+
+  return [...base, ...altUrls, ...decodeAlts];
+}
+
+// ─── Main URL-to-Try Builder ──────────────────────────────────────────────────
+
 function buildUrlsToTry(img, index) {
   const urlsToTry = [];
-  
-  console.log(`Building URLs for image ${index}:`, img);
-  
-  // 1. Try proxy first if available
-  if (img.proxy) {
-    urlsToTry.push(img.proxy);
-    console.log(`Added proxy URL: ${img.proxy}`);
+
+  if (!img?.url) {
+    console.warn(`Image ${index} has no URL`);
+    return urlsToTry;
   }
-  
-  // 2. For Columbia University URLs, add multiple proxy attempts
-  if (img.url && img.url.includes("dlc.library.columbia.edu")) {
-    console.log(`Detected Columbia University URL: ${img.url}`);
-    
-    // Try to extract document ID and canvas number
-    const columbiaMatch = img.url.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
-    if (columbiaMatch) {
-      const docId = decodeURIComponent(columbiaMatch[1]);
-      const canvas = columbiaMatch[2];
-      
-      // Add specific Columbia proxy URLs
-      urlsToTry.push(
-        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`,
-        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=2000`,
-        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1500`,
-        `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1000`
+
+  // Proxy always goes first when available
+  if (img.proxy) urlsToTry.push(img.proxy);
+
+  const url = img.url;
+
+  // ── Columbia (triclops or dlc) ──
+  if (url.includes("triclops.library.columbia.edu") || url.includes("dlc.library.columbia.edu")) {
+    console.log(`Image ${index}: Columbia URL`);
+    const m = url.match(/(?:triclops|dlc)\.library\.columbia\.edu\/(?:iiif\/\d+\/)?([^\/]+)\/.*?(\d+)/);
+    if (m) {
+      const id = encodeURIComponent(decodeURIComponent(m[1]));
+      const canvas = m[2];
+      ['full', '2000', '1500', '1000'].forEach(size =>
+        urlsToTry.push(`http://localhost:5000/columbia?id=${id}&canvas=${canvas}&size=${size}`)
       );
     }
-    
-    // Generic proxy fallback for Columbia URLs
-    urlsToTry.push(
-      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`,
-      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/max/'))}`,
-      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/2000,/'))}`,
-      `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/1500,/'))}`
+    ['max', '2000,', '1500,', '1200,', '800,'].forEach(size =>
+      urlsToTry.push(
+        `http://localhost:5000/proxy?url=${encodeURIComponent(url.replace(/\/full\/[^\/]+\//, `/full/${size}/`))}`
+      )
     );
-    
-    // Also try direct URL (might work in some cases)
-    urlsToTry.push(img.url);
-    
-    console.log(`Columbia URLs to try (first 5):`, urlsToTry.slice(0, 5));
-    
-    return [...new Set(urlsToTry)]; // Remove duplicates and return
+    urlsToTry.push(url); // direct last — likely CORS-blocked but worth trying
+    return [...new Set(urlsToTry)];
   }
-  
-  // 3. Add the primary URL first (for non-Columbia URLs)
-  if (img.url) {
-    urlsToTry.push(img.url);
-  }
-  
-  // 4. Montecassino/Vatican Digital Library specific handling
-  if (img.url && (img.url.includes("omnes.dbseret.com") || img.url.includes("montecassino") || img.url.includes("vatlib") || img.url.includes("digi.vatlib") || img.url.includes("vatican"))) {
-    console.log(`Detected Montecassino/Vatican URL: ${img.url}`);
-    
-    if (img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-      
-      // Montecassino/Vatican specific patterns
-      urlsToTry.push(
-        // Standard IIIF patterns that Vatican/Montecassino typically supports
-        `${baseUrl}/full/full/0/default.jpg`,
-        `${baseUrl}/full/max/0/default.jpg`,
-        `${baseUrl}/full/full/0/native.jpg`,
-        `${baseUrl}/full/max/0/native.jpg`,
-        
-        // Try removing the current size parameters and using standard ones
-        `${baseUrl}/full/1200,/0/default.jpg`,
-        `${baseUrl}/full/800,/0/default.jpg`,
-        `${baseUrl}/full/600,/0/default.jpg`,
-        `${baseUrl}/full/400,/0/default.jpg`,
-        
-        // Try height-based sizing
-        `${baseUrl}/full/,1200/0/default.jpg`,
-        `${baseUrl}/full/,800/0/default.jpg`,
-        `${baseUrl}/full/,600/0/default.jpg`,
-        
-        // Try exact dimensions that Vatican often uses
-        `${baseUrl}/full/800,1067/0/default.jpg`,
-        `${baseUrl}/full/600,800/0/default.jpg`,
-        `${baseUrl}/full/1200,1600/0/default.jpg`,
-        
-        // Try without rotation parameter (remove /0/)
-        `${baseUrl}/full/full/default.jpg`,
-        `${baseUrl}/full/max/default.jpg`,
-        `${baseUrl}/full/1200,/default.jpg`,
-        `${baseUrl}/full/800,/default.jpg`,
-        
-        // Try different quality/format parameters
-        `${baseUrl}/full/full/0/color.jpg`,
-        `${baseUrl}/full/max/0/color.jpg`,
-        `${baseUrl}/full/full/0/gray.jpg`,
-        `${baseUrl}/full/full/0/bitonal.jpg`,
-        
-        // Try the base URL directly
-        baseUrl,
-        `${baseUrl}.jpg`,
-        
-        // Try legacy IIIF 1.0 patterns
-        `${baseUrl}/full/0/native.jpg`,
-        `${baseUrl}/full/0/default.jpg`,
-        `${baseUrl}/full/native.jpg`,
-        `${baseUrl}/full/default.jpg`,
-        
-        // Try different rotation values
-        `${baseUrl}/full/full/90/default.jpg`,
-        `${baseUrl}/full/full/180/default.jpg`,
-        `${baseUrl}/full/full/270/default.jpg`,
-        
-        // Try removing URL encoding issues
-        img.url.replace(/%5B/g, '[').replace(/%5D/g, ']'),
-        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/full/0/default.jpg`,
-        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/max/0/default.jpg`,
-        
-        // Try alternative path structures sometimes used by Vatican systems
-        `${baseUrl.replace('/iiif/2/', '/iiif/')}/full/full/0/default.jpg`,
-        `${baseUrl.replace('/iiif/2/', '/images/')}/full/full/0/default.jpg`,
-        `${baseUrl.replace('/iiif/', '/images/')}/full/full/0/default.jpg`
-      );
-    } else {
-      // If no /full/ in URL, try adding IIIF parameters
-      urlsToTry.push(
-        `${img.url}/full/full/0/default.jpg`,
-        `${img.url}/full/max/0/default.jpg`,
-        `${img.url}/full/1200,/0/default.jpg`,
-        `${img.url}/full/800,/0/default.jpg`
-      );
+
+  // For all other sources, add primary URL before alternatives
+  urlsToTry.push(url);
+
+  // ── Montecassino / Vatican ──
+  if (url.includes("omnes.dbseret.com") || url.includes("montecassino") ||
+      url.includes("vatlib") || url.includes("digi.vatlib") || url.includes("vatican")) {
+    console.log(`Image ${index}: Montecassino/Vatican URL`);
+    const baseUrl = url.includes("/full/") ? url.split("/full/")[0] : url;
+    urlsToTry.push(...vaticanVariants(baseUrl, url));
+    if (!url.includes("/full/")) {
+      urlsToTry.push(...['full', 'max', '1200,', '800,'].map(s => `${url}/full/${s}/0/default.jpg`));
     }
   }
-  // 5. For CNRS URLs
-  else if (img.url && img.url.includes("iiif.irht.cnrs.fr")) {
-    console.log(`Detected CNRS URL: ${img.url}`);
-    
-    const baseUrl = img.url.split("/full/")[0];
-    
+
+  // ── CNRS ──
+  else if (url.includes("iiif.irht.cnrs.fr")) {
+    console.log(`Image ${index}: CNRS URL`);
+    const baseUrl = url.includes("/full/") ? url.split("/full/")[0] : url;
+    urlsToTry.push(...iiifVariants(baseUrl));
+    urlsToTry.push(`${baseUrl}/full/full/0/default.png`, `${baseUrl}/full/max/0/default.png`);
+  }
+
+  // ── Gallica ──
+  else if (url.includes("gallica.bnf.fr") && url.includes("/full/")) {
+    console.log(`Image ${index}: Gallica URL`);
+    const baseUrl = url.split("/full/")[0];
+    const ark = baseUrl.match(/ark:\/([^/]+\/[^/]+)/);
+    const page = baseUrl.match(/\/f(\d+)/);
+    if (ark && page) {
+      // Proxy goes to front of the list for Gallica
+      urlsToTry.unshift(`http://localhost:5000/download?ark=${encodeURIComponent(ark[1])}&f=${page[1]}&size=full`);
+    }
     urlsToTry.push(
-      `${baseUrl}/full/full/0/default.jpg`,
-      `${baseUrl}/full/max/0/default.jpg`,
-      `${baseUrl}/full/1200,/0/default.jpg`,
-      `${baseUrl}/full/800,/0/default.jpg`,
-      `${baseUrl}/full/600,/0/default.jpg`,
-      `${baseUrl}/full/400,/0/default.jpg`,
-      `${baseUrl}/full/full/90/default.jpg`,
-      `${baseUrl}/full/full/180/default.jpg`,
-      `${baseUrl}/full/full/270/default.jpg`,
-      `${baseUrl}/full/full/default.jpg`,
-      `${baseUrl}/full/max/default.jpg`,
-      baseUrl,
-      `${baseUrl}.jpg`,
-      `${baseUrl}/full/full/0/default.png`,
-      `${baseUrl}/full/max/0/default.png`,
       `${baseUrl}/full/full/0/native.jpg`,
-      `${baseUrl}/full/max/0/native.jpg`,
-      `${baseUrl}/full/0/native.jpg`,
-      `${baseUrl}/full/0/default.jpg`
-    );
-  }
-  // 6. For Gallica URLs
-  else if (img.url && img.url.includes("gallica.bnf.fr")) {
-    console.log(`Detected Gallica URL: ${img.url}`);
-    
-    if (img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-      
-      // Use local proxy for Gallica
-      const arkMatch = baseUrl.match(/ark:\/([^/]+\/[^/]+)/);
-      const pageMatch = baseUrl.match(/\/f(\d+)/);
-      if (arkMatch && pageMatch) {
-        const ark = arkMatch[1];
-        const page = pageMatch[1];
-        urlsToTry.unshift(`http://localhost:5000/download?ark=${encodeURIComponent(ark)}&f=${page}&size=full`);
-      }
-      
-      urlsToTry.push(
-        `${baseUrl}/full/full/0/native.jpg`,
-        `${baseUrl}/full/full/0/default.jpg`,
-        `${baseUrl}/full/max/0/native.jpg`,
-        `${baseUrl}/full/max/0/default.jpg`
-      );
-    }
-  }
-  // 7. For other IIIF URLs
-  else if (img.url && img.url.includes("/full/")) {
-    console.log(`Detected other IIIF URL: ${img.url}`);
-    
-    const baseUrl = img.url.split("/full/")[0];
-    
-    urlsToTry.push(
-      `${baseUrl}/full/max/0/default.jpg`,
       `${baseUrl}/full/full/0/default.jpg`,
-      `${baseUrl}/full/2000,/0/default.jpg`,
-      `${baseUrl}/full/1500,/0/default.jpg`,
-      `${baseUrl}/full/1000,/0/default.jpg`,
-      `${baseUrl}/full/800,/0/default.jpg`,
-      baseUrl
+      `${baseUrl}/full/max/0/native.jpg`,
+      `${baseUrl}/full/max/0/default.jpg`
     );
   }
-  // 8. For other IIIF URLs, add generic proxy as backup
-  else if (img.url && img.url.includes("/iiif/")) {
-    urlsToTry.push(`http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`);
+
+  // ── Generic IIIF with /full/ segment ──
+  else if (url.includes("/full/")) {
+    console.log(`Image ${index}: generic IIIF URL`);
+    const baseUrl = url.split("/full/")[0];
+    urlsToTry.push(...['max', 'full', '2000,', '1500,', '1000,', '800,'].map(
+      s => `${baseUrl}/full/${s}/0/default.jpg`
+    ));
+    urlsToTry.push(baseUrl);
   }
-  
-  // Remove duplicates while preserving order
-  const uniqueUrls = [...new Set(urlsToTry)];
-  console.log(`Final URLs to try for image ${index} (${uniqueUrls.length} total):`, uniqueUrls);
-  
-  // Log the first few URLs for debugging
-  uniqueUrls.slice(0, 5).forEach((url, i) => {
-    console.log(`  ${i + 1}. ${url}`);
-  });
-  
-  return uniqueUrls;
+
+  // ── Other IIIF base URL ──
+  else if (url.includes("/iiif/")) {
+    urlsToTry.push(`http://localhost:5000/proxy?url=${encodeURIComponent(url)}`);
+  }
+
+  const unique = [...new Set(urlsToTry)];
+  console.log(`Image ${index}: ${unique.length} URLs to try`);
+  return unique;
 }
 
-// --- Core Function: Get and Display Manifest ---
+// ─── Manifest Loading ─────────────────────────────────────────────────────────
+
 async function getManifest() {
-  var url = document.getElementById("url").value;
-  if (!url) {
-    showMessage("Please enter a manifest URL.");
-    return;
-  }
+  const url = document.getElementById("url").value;
+  if (!url) { showMessage("Please enter a manifest URL."); return; }
 
   showMessage("Loading manifest...");
-  console.log("Fetching manifest from URL:", url);
 
+  let manifest;
   try {
     const response = await fetch(url);
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `HTTP error! Status: ${response.status} - ${
-          response.statusText
-        }. Details: ${errorText.substring(0, 200)}...`
-      );
+      const detail = (await response.text()).substring(0, 200);
+      throw new Error(`HTTP ${response.status} ${response.statusText}: ${detail}`);
     }
-    const manifest = await response.json();
+    manifest = await response.json();
+  } catch (err) {
+    showMessage(`Error loading manifest: ${err.message}`);
+    console.error("Error loading manifest:", err);
+    return;
+  }
 
-    console.log("Manifest loaded successfully:", manifest);
-    document.getElementById("img-container").innerHTML = ""; // Clear previous images
-    images = []; // Reset images array
+  document.getElementById("img-container").innerHTML = "";
+  images = [];
 
-    let canvases = [];
-    let isIIIFP3 = false;
+  // ── Detect IIIF version and extract canvases ──
+  let canvases = [];
+  let isIIIFP3 = false;
 
-    // --- IIIF Version Detection and Canvas Extraction ---
-    if (
-      manifest["@context"] &&
-      manifest["@context"].includes(
-        "http://iiif.io/api/presentation/3/context.json"
-      )
-    ) {
-      isIIIFP3 = true;
-      if (manifest.items && Array.isArray(manifest.items)) {
-        canvases = manifest.items; // In P3, canvases are directly in 'items'
-      }
-    } else if (
-      manifest.sequences &&
-      manifest.sequences[0] &&
-      manifest.sequences[0].canvases
-    ) {
-      // Assume IIIF Presentation 2.x
-      canvases = manifest.sequences[0].canvases;
-    }
+  if (manifest["@context"]?.includes("http://iiif.io/api/presentation/3/context.json")) {
+    isIIIFP3 = true;
+    canvases = manifest.items ?? [];
+  } else if (manifest.sequences?.[0]?.canvases) {
+    canvases = manifest.sequences[0].canvases;
+  }
 
-    if (canvases.length === 0) {
-      showMessage(
-        "Error: No valid images or canvases found in manifest, or unrecognized IIIF structure."
-      );
-      console.error(
-        "No valid images or canvases found or invalid manifest structure for P2/P3:",
-        manifest
-      );
+  if (canvases.length === 0) {
+    showMessage("Error: No canvases found in manifest, or unrecognized IIIF structure.");
+    return;
+  }
+
+  // ── Show/hide Gallica rate-limit checkbox ──
+  const isGallicaManifest = url.includes("gallica.bnf.fr") ||
+    canvases.some(c => JSON.stringify(c).includes("gallica.bnf.fr"));
+  const gallicaContainer = document.getElementById("gallicaContainer");
+  if (gallicaContainer) {
+    gallicaContainer.style.display = isGallicaManifest ? "block" : "none";
+    if (!isGallicaManifest) document.getElementById("gallicaCheckbox").checked = false;
+  }
+
+  // ── Show/hide chunking options ──
+  const chunkContainer = document.getElementById("chunkContainer");
+  if (chunkContainer) {
+    chunkContainer.style.display = canvases.length > 50 ? "block" : "none";
+  }
+
+  // ── Process each canvas ──
+  canvases.forEach((canvas, index) => {
+    const { thumbnailUrl, fullImageUrlBase } = extractCanvasImageUrls(canvas, index, isIIIFP3);
+
+    if (!thumbnailUrl) {
+      console.warn(`Canvas ${index}: could not determine image URL, skipping`);
       return;
     }
 
-    // Check if this is a Gallica manifest and show/hide the checkbox
-    const isGallicaManifest = url.includes("gallica.bnf.fr") || 
-                              canvases.some(canvas => {
-                                const hasGallicaUrl = JSON.stringify(canvas).includes("gallica.bnf.fr");
-                                return hasGallicaUrl;
-                              });
-    
-    // Only show/hide the container if it exists, don't auto-check
-    const gallicaContainer = document.getElementById("gallicaContainer");
-    if (gallicaContainer) {
-      if (isGallicaManifest) {
-        gallicaContainer.style.display = "block";
-      } else {
-        gallicaContainer.style.display = "none";
-        document.getElementById("gallicaCheckbox").checked = false;
-      }
-    }
+    const downloadUrl  = resolveDownloadUrl(fullImageUrlBase);
+    const isIIIFSvc    = fullImageUrlBase &&
+      (fullImageUrlBase.includes("/iiif/image/") || /\/images\/.+\/?$/.test(fullImageUrlBase));
+    const infoUrl      = isIIIFSvc ? `${fullImageUrlBase}/info.json` : null;
+    const proxyUrl     = buildProxyUrl(fullImageUrlBase);
+    const imageLabel   = he.decode(extractLabelText(canvas.label, `Image ${index + 1}`));
 
-    // Show chunking options if we have many images
-    const chunkContainer = document.getElementById("chunkContainer");
-    if (chunkContainer && canvases.length > 50) {
-      chunkContainer.style.display = "block";
-    } else if (chunkContainer) {
-      chunkContainer.style.display = "none";
-    }
+    images.push({ url: downloadUrl, proxy: proxyUrl, info: infoUrl, label: imageLabel });
 
-    // --- Process Each Canvas ---
-    canvases.forEach((canvas, index) => {
-      console.log("Processing canvas:", canvas);
-      let thumbnailUrl = "";
-      let fullImageUrlBase = "";
-      let imageLabel = he.decode(extractLabelText(canvas.label, `Image ${index + 1}`));
-
-      // Debug: Log the raw canvas structure
-      console.log(`Canvas ${index} structure:`, {
-        label: canvas.label,
-        images: canvas.images,
-        items: canvas.items,
-      });
-
-      // --- Extract Image URLs based on IIIF Version and Fallbacks ---
-      if (isIIIFP3) {
-        // --- Try IIIF Presentation 3.0 parsing first ---
-        const annotationPage = canvas.items && canvas.items[0];
-        const annotation = annotationPage && annotationPage.items && annotationPage.items[0];
-        const body = annotation && annotation.body;
-
-        console.log(`Canvas ${index} P3 structure:`, {
-          annotationPage: annotationPage,
-          annotation: annotation,
-          body: body
-        });
-
-        if (body) {
-          // Handle array of bodies (some P3 manifests have multiple bodies)
-          const bodyToProcess = Array.isArray(body) ? body[0] : body;
-
-          console.log(`Canvas ${index} processing body:`, bodyToProcess);
-
-          if (bodyToProcess.service && Array.isArray(bodyToProcess.service) && bodyToProcess.service.length > 0) {
-            const imageService = bodyToProcess.service.find(
-              (s) =>
-                s.id &&
-                (s.id.includes("/iiif/") ||
-                  s.type === "ImageService2" ||
-                  s.type === "ImageService3")
-            );
-            if (imageService) {
-              fullImageUrlBase = imageService.id.endsWith("/")
-                ? imageService.id.slice(0, -1)
-                : imageService.id;
-              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-              console.log(`Canvas ${index} found image service:`, imageService.id);
-            }
-          }
-          // Handle single service object (not array)
-          else if (bodyToProcess.service && bodyToProcess.service.id) {
-            const serviceId = bodyToProcess.service.id;
-            if (
-              serviceId.includes("/iiif/") ||
-              bodyToProcess.service.type === "ImageService2" ||
-              bodyToProcess.service.type === "ImageService3"
-            ) {
-              fullImageUrlBase = serviceId.endsWith("/")
-                ? serviceId.slice(0, -1)
-                : serviceId;
-              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-              console.log(`Canvas ${index} found single service:`, serviceId);
-            }
-          }
-          // Fallback to body.id if no service found
-          else if (bodyToProcess.id) {
-            console.log(`Canvas ${index} using body.id:`, bodyToProcess.id);
-            // Check if the body.id is a direct image or needs IIIF parameters
-            if (bodyToProcess.id.includes("/iiif/") && !bodyToProcess.id.includes("/full/")) {
-              // It's an IIIF base URL, add parameters
-              fullImageUrlBase = bodyToProcess.id.endsWith("/")
-                ? bodyToProcess.id.slice(0, -1)
-                : bodyToProcess.id;
-              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-            } else {
-              // It's a direct image URL
-              fullImageUrlBase = bodyToProcess.id;
-              thumbnailUrl = bodyToProcess.id;
-            }
-          }
-        }
-
-        // --- ENHANCED FALLBACK for P3 manifests ---
-        if (!thumbnailUrl) {
-          console.log(`Canvas ${index} P3 parsing failed, trying fallbacks...`);
-
-          // Try thumbnail property (common in P3)
-          if (canvas.thumbnail && canvas.thumbnail.length > 0) {
-            const thumb = canvas.thumbnail[0];
-            if (thumb.id) {
-              console.log(`Canvas ${index} using thumbnail:`, thumb.id);
-              thumbnailUrl = thumb.id;
-
-              // Try to derive full image URL from thumbnail
-              if (thumb.service && thumb.service.length > 0 && thumb.service[0].id) {
-                fullImageUrlBase = thumb.service[0].id.endsWith("/")
-                  ? thumb.service[0].id.slice(0, -1)
-                  : thumb.service[0].id;
-              } else {
-                // Try to extract base URL from thumbnail URL
-                const thumbMatch = thumb.id.match(/^(.+\/iiif\/[^\/]+)/);
-                if (thumbMatch) {
-                  fullImageUrlBase = thumbMatch[1];
-                } else {
-                  fullImageUrlBase = thumb.id;
-                }
-              }
-            }
-          }
-
-          // Try P2-style fallback embedded in P3
-          if (!thumbnailUrl) {
-            console.log(`Canvas ${index} trying P2 fallback in P3...`);
-            const imageResource = canvas.images && canvas.images[0] && canvas.images[0].resource;
-            if (imageResource) {
-              if (imageResource.service && imageResource.service["@id"]) {
-                fullImageUrlBase = imageResource.service["@id"].endsWith("/")
-                  ? imageResource.service["@id"].slice(0, -1)
-                  : imageResource.service["@id"];
-                thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-                console.log(`Canvas ${index} P2 fallback found service:`, imageResource.service["@id"]);
-              } else if (imageResource["@id"]) {
-                fullImageUrlBase = imageResource["@id"];
-                thumbnailUrl = imageResource["@id"];
-                console.log(`Canvas ${index} P2 fallback found direct image:`, imageResource["@id"]);
-              }
-            }
-          }
-        }
-
-        console.log(`Canvas ${index} P3 final URLs:`, {
-          fullImageUrlBase: fullImageUrlBase,
-          thumbnailUrl: thumbnailUrl
-        });
-      } else {
-        // This block handles true IIIF Presentation 2.x manifests
-        const imageResource = canvas.images && canvas.images[0] && canvas.images[0].resource;
-        if (imageResource) {
-          if (imageResource.service && imageResource.service["@id"]) {
-            fullImageUrlBase = imageResource.service["@id"].endsWith("/")
-              ? imageResource.service["@id"].slice(0, -1)
-              : imageResource.service["@id"];
-            thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-          } else if (imageResource["@id"]) {
-            fullImageUrlBase = imageResource["@id"];
-            thumbnailUrl = imageResource["@id"];
-          }
-        }
-      }
-
-      if (!thumbnailUrl) {
-        console.warn(
-          "Could not determine image URL for canvas. Canvas data:",
-          canvas
-        );
-        return; // Skip this canvas if no displayable image URL found
-      }
-
-      // --- 🔧 MOVED INSIDE LOOP: Determine download URL (full resolution) ---
-      let downloadUrl = fullImageUrlBase;
-      if (
-        fullImageUrlBase &&
-        (fullImageUrlBase.includes("/iiif/image/") ||
-          fullImageUrlBase.match(/\/images\/.+\/?$/) ||
-          fullImageUrlBase.match(/\/loris\/.+$/) ||
-          fullImageUrlBase.includes("iiifimage") ||
-          fullImageUrlBase.includes("gallica.bnf.fr/iiif") ||
-          fullImageUrlBase.includes("dlc.library.columbia.edu"))
-      ) {
-        // Try different IIIF Image API parameters based on institution
-        if (
-          fullImageUrlBase.includes("vatlib") ||
-          fullImageUrlBase.includes("digi.vatlib")
-        ) {
-          // Vatican Library uses specific parameters: /full/full/0/native.jpg
-          downloadUrl = `${fullImageUrlBase}/full/full/0/native.jpg`;
-        } else if (fullImageUrlBase.includes("gallica.bnf.fr")) {
-          // Gallica (French National Library) uses: /full/full/0/native.jpg
-          downloadUrl = `${fullImageUrlBase}/full/full/0/native.jpg`;
-        } else if (fullImageUrlBase.includes("dlc.library.columbia.edu")) {
-          // Columbia University uses: /full/max/0/default.jpg
-          downloadUrl = `${fullImageUrlBase}/full/max/0/default.jpg`;
-        } else if (fullImageUrlBase.includes("fragmentarium")) {
-          // Fragmentarium might need different parameters
-          downloadUrl = `${fullImageUrlBase}/full/full/0/default.jpg`;
-        } else {
-          downloadUrl = `${fullImageUrlBase}/full/max/0/default.jpg`;
-        }
-      }
-
-      console.log(`Canvas ${index}: fullImageUrlBase = ${fullImageUrlBase}`);
-      console.log(`Canvas ${index}: downloadUrl = ${downloadUrl}`);
-      
-      // --- 🔧 MOVED INSIDE LOOP: Standardize the info URL for the service ---
-      const isIIIFImageService =
-        fullImageUrlBase &&
-        (fullImageUrlBase.includes("/iiif/image/") ||
-          fullImageUrlBase.match(/\/images\/.+\/?$/));
-      var infoUrl = isIIIFImageService ? `${fullImageUrlBase}/info.json` : null;
-      const proxyUrl = buildProxyUrl(fullImageUrlBase); 
-
-      // --- 🔧 MOVED INSIDE LOOP: Add to images array ---
-      images.push({
-        url: downloadUrl,       // original remote image
-        proxy: proxyUrl,        // same image via your Flask proxy
-        info: infoUrl,
-        label: imageLabel,
-      });
-
-      // --- 🔧 MOVED INSIDE LOOP: Create HTML Elements for Image Display ---
-      var container = document.createElement("div");
-      container.className = "image-card fade-in-up";
-
-      var checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.id = `img-${images.length - 1}`;
-      checkbox.value = images.length - 1;
-      checkbox.setAttribute("aria-label", `Select ${imageLabel}`);
-
-      var labelWrapper = document.createElement("label");
-      labelWrapper.htmlFor = `img-${images.length - 1}`;
-      labelWrapper.style.display = "block";
-
-      var imgElement = document.createElement("img");
-      imgElement.src = thumbnailUrl;
-      imgElement.alt = imageLabel;
-      imgElement.style.maxWidth = "100%";
-      imgElement.style.height = "auto";
-      imgElement.style.display = "block";
-      imgElement.style.marginBottom = "10px";
-      imgElement.style.borderRadius = "var(--radius-md)";
-      imgElement.style.border = "1px solid var(--border-color)";
-
-      labelWrapper.appendChild(imgElement);
-
-      var labelText = document.createElement("p");
-      labelText.textContent = imageLabel;
-      labelText.style.fontWeight = "bold";
-      labelText.style.marginBottom = "5px";
-      labelText.style.color = "var(--text-primary)";
-      labelText.style.fontSize = "1.1rem";
-
-      var apiLink = document.createElement("p");
-      apiLink.innerHTML = `<strong>Download URL:</strong> <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer">${downloadUrl.substring(
-        0,
-        40
-      )}...</a>`;
-      apiLink.style.fontSize = "0.9rem";
-      apiLink.style.color = "var(--text-secondary)";
-      apiLink.style.marginBottom = "3px";
-
-      var infoJsonLink = document.createElement("p");
-      if (infoUrl) {
-        infoJsonLink.innerHTML = `<strong>Info JSON:</strong> <a href="${infoUrl}" target="_blank" rel="noopener noreferrer">View info.json</a>`;
-      } else {
-        infoJsonLink.textContent = `Info JSON: N/A`;
-      }
-      infoJsonLink.style.fontSize = "0.9rem";
-      infoJsonLink.style.color = "var(--text-secondary)";
-      infoJsonLink.style.marginBottom = "10px";
-
-      var selectContainer = document.createElement("div");
-      selectContainer.style.display = "flex";
-      selectContainer.style.alignItems = "center";
-      selectContainer.style.gap = "8px";
-      selectContainer.style.marginBottom = "10px";
-      selectContainer.appendChild(checkbox);
-      var selectLabelText = document.createElement("span");
-      selectLabelText.textContent = "Select for Download";
-      selectContainer.appendChild(selectLabelText);
-
-      container.appendChild(selectContainer);
-      container.appendChild(labelWrapper);
-      container.appendChild(labelText);
-      container.appendChild(apiLink);
-      container.appendChild(infoJsonLink);
-
-      // --- 🔧 MOVED INSIDE LOOP: Add to DOM ---
-      document.getElementById("img-container").appendChild(container);
-    }); // 👈 End of canvases.forEach() loop
-
-    showMessage(`Manifest loaded successfully. ${images.length} images found.`);
-  } catch (error) {
-    showMessage(`Error loading manifest: ${error.message}`);
-    console.error("Error loading manifest:", error);
-  }
-}
-
-// --- Utility Functions ---
-function selectAll() {
-  var checkboxes = document.querySelectorAll('input[type="checkbox"]');
-  var allChecked = Array.from(checkboxes).every((checkbox) => checkbox.checked);
-  checkboxes.forEach((checkbox) => (checkbox.checked = !allChecked));
-}
-
-// Helper function to build all possible URLs to try
-// Enhanced buildUrlsToTry function with better CNRS support
-// Enhanced buildUrlsToTry function with Vatican Library support
-// Enhanced buildUrlsToTry function with Montecassino/Vatican support
-function buildUrlsToTry(img, index) {
-  const urlsToTry = [];
-  
-  console.log(`Building URLs for image ${index}:`, img);
-  
-  // 1. Try proxy first if available
-  if (img.proxy) {
-    urlsToTry.push(img.proxy);
-    console.log(`Added proxy URL: ${img.proxy}`);
-  }
-  
-  // 2. Add the primary URL first
-  if (img.url) {
-    urlsToTry.push(img.url);
-  }
-  
-  // 3. Montecassino/Vatican Digital Library specific handling
-  if (img.url && (img.url.includes("omnes.dbseret.com") || img.url.includes("montecassino") || img.url.includes("vatlib") || img.url.includes("digi.vatlib") || img.url.includes("vatican"))) {
-    console.log(`Detected Montecassino/Vatican URL: ${img.url}`);
-    
-    if (img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-      
-      // Montecassino/Vatican specific patterns
-      urlsToTry.push(
-        // Try the original URL first (already added above, but ensure it's there)
-        img.url,
-        
-        // Standard IIIF patterns that Vatican/Montecassino typically supports
-        `${baseUrl}/full/full/0/default.jpg`,
-        `${baseUrl}/full/max/0/default.jpg`,
-        `${baseUrl}/full/full/0/native.jpg`,
-        `${baseUrl}/full/max/0/native.jpg`,
-        
-        // Try removing the current size parameters and using standard ones
-        `${baseUrl}/full/1200,/0/default.jpg`,
-        `${baseUrl}/full/800,/0/default.jpg`,
-        `${baseUrl}/full/600,/0/default.jpg`,
-        `${baseUrl}/full/400,/0/default.jpg`,
-        
-        // Try height-based sizing
-        `${baseUrl}/full/,1200/0/default.jpg`,
-        `${baseUrl}/full/,800/0/default.jpg`,
-        `${baseUrl}/full/,600/0/default.jpg`,
-        
-        // Try exact dimensions that Vatican often uses
-        `${baseUrl}/full/800,1067/0/default.jpg`,
-        `${baseUrl}/full/600,800/0/default.jpg`,
-        `${baseUrl}/full/1200,1600/0/default.jpg`,
-        
-        // Try without rotation parameter (remove /0/)
-        `${baseUrl}/full/full/default.jpg`,
-        `${baseUrl}/full/max/default.jpg`,
-        `${baseUrl}/full/1200,/default.jpg`,
-        `${baseUrl}/full/800,/default.jpg`,
-        
-        // Try different quality/format parameters
-        `${baseUrl}/full/full/0/color.jpg`,
-        `${baseUrl}/full/max/0/color.jpg`,
-        `${baseUrl}/full/full/0/gray.jpg`,
-        `${baseUrl}/full/full/0/bitonal.jpg`,
-        
-        // Try the base URL directly
-        baseUrl,
-        `${baseUrl}.jpg`,
-        
-        // Try legacy IIIF 1.0 patterns
-        `${baseUrl}/full/0/native.jpg`,
-        `${baseUrl}/full/0/default.jpg`,
-        `${baseUrl}/full/native.jpg`,
-        `${baseUrl}/full/default.jpg`,
-        
-        // Try different rotation values
-        `${baseUrl}/full/full/90/default.jpg`,
-        `${baseUrl}/full/full/180/default.jpg`,
-        `${baseUrl}/full/full/270/default.jpg`,
-        
-        // Try removing URL encoding issues
-        img.url.replace(/%5B/g, '[').replace(/%5D/g, ']'),
-        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/full/0/default.jpg`,
-        `${baseUrl.replace(/%5B/g, '[').replace(/%5D/g, ']')}/full/max/0/default.jpg`,
-        
-        // Try alternative path structures sometimes used by Vatican systems
-        `${baseUrl.replace('/iiif/2/', '/iiif/')}/full/full/0/default.jpg`,
-        `${baseUrl.replace('/iiif/2/', '/images/')}/full/full/0/default.jpg`,
-        `${baseUrl.replace('/iiif/', '/images/')}/full/full/0/default.jpg`
-      );
-    } else {
-      // If no /full/ in URL, try adding IIIF parameters
-      urlsToTry.push(
-        `${img.url}/full/full/0/default.jpg`,
-        `${img.url}/full/max/0/default.jpg`,
-        `${img.url}/full/1200,/0/default.jpg`,
-        `${img.url}/full/800,/0/default.jpg`
-      );
-    }
-  }
-  // 4. For CNRS URLs
-  else if (img.url && img.url.includes("iiif.irht.cnrs.fr")) {
-    console.log(`Detected CNRS URL: ${img.url}`);
-    
-    const baseUrl = img.url.split("/full/")[0];
-    
-    urlsToTry.push(
-      `${baseUrl}/full/full/0/default.jpg`,
-      `${baseUrl}/full/max/0/default.jpg`,
-      `${baseUrl}/full/1200,/0/default.jpg`,
-      `${baseUrl}/full/800,/0/default.jpg`,
-      `${baseUrl}/full/600,/0/default.jpg`,
-      `${baseUrl}/full/400,/0/default.jpg`,
-      `${baseUrl}/full/full/90/default.jpg`,
-      `${baseUrl}/full/full/180/default.jpg`,
-      `${baseUrl}/full/full/270/default.jpg`,
-      `${baseUrl}/full/full/default.jpg`,
-      `${baseUrl}/full/max/default.jpg`,
-      baseUrl,
-      `${baseUrl}.jpg`,
-      `${baseUrl}/full/full/0/default.png`,
-      `${baseUrl}/full/max/0/default.png`,
-      `${baseUrl}/full/full/0/native.jpg`,
-      `${baseUrl}/full/max/0/native.jpg`,
-      `${baseUrl}/full/0/native.jpg`,
-      `${baseUrl}/full/0/default.jpg`
+    document.getElementById("img-container").appendChild(
+      buildImageCard(images.length - 1, thumbnailUrl, downloadUrl, infoUrl, imageLabel)
     );
-  }
-  // 5. For Gallica URLs
-  else if (img.url && img.url.includes("gallica.bnf.fr")) {
-    console.log(`Detected Gallica URL: ${img.url}`);
-    
-    if (img.url.includes("/full/")) {
-      const baseUrl = img.url.split("/full/")[0];
-      
-      const corsProxy = "https://api.allorigins.win/raw?url=";
-      urlsToTry.push(
-        corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/native.jpg`),
-        corsProxy + encodeURIComponent(`${baseUrl}/full/full/0/default.jpg`),
-        corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/native.jpg`),
-        corsProxy + encodeURIComponent(`${baseUrl}/full/max/0/default.jpg`),
-        corsProxy + encodeURIComponent(`${baseUrl}/full/2000,/0/native.jpg`),
-        `${baseUrl}/full/full/0/native.jpg`,
-        `${baseUrl}/full/full/0/default.jpg`,
-        `${baseUrl}/full/max/0/native.jpg`,
-        `${baseUrl}/full/max/0/default.jpg`
-      );
-    } 
-    // 6. For Columbia University URLs, add multiple proxy attempts
-    else if (img.url && img.url.includes("dlc.library.columbia.edu")) {
-      console.log(`Detected Columbia University URL: ${img.url}`);
-      
-      // Try to extract document ID and canvas number
-      const columbiaMatch = img.url.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
-      if (columbiaMatch) {
-        const docId = decodeURIComponent(columbiaMatch[1]);
-        const canvas = columbiaMatch[2];
-        
-        // Add specific Columbia proxy URLs
-        urlsToTry.push(
-          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=full`,
-          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=2000`,
-          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1500`,
-          `http://localhost:5000/columbia?id=${encodeURIComponent(docId)}&canvas=${canvas}&size=1000`
-        );
-      }
-      
-      // Generic proxy fallback for Columbia URLs
-      urlsToTry.push(
-        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url)}`,
-        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/max/'))}`,
-        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/2000,/'))}`,
-        `http://localhost:5000/proxy?url=${encodeURIComponent(img.url.replace(/\/full\/[^\/]+\//, '/full/1500,/'))}`
-      );
-      
-      // Also try direct URL (might work in some cases)
-      urlsToTry.push(img.url);
-      
-      console.log(`Columbia URLs to try (first 5):`, urlsToTry.slice(0, 5));
-      
-      return [...new Set(urlsToTry)]; // Remove duplicates and return
-    }
-  // 6. For other IIIF URLs
-  else if (img.url && img.url.includes("/full/")) {
-    console.log(`Detected other IIIF URL: ${img.url}`);
-    
-    const baseUrl = img.url.split("/full/")[0];
-    
-    urlsToTry.push(
-      `${baseUrl}/full/max/0/default.jpg`,
-      `${baseUrl}/full/full/0/default.jpg`,
-      `${baseUrl}/full/2000,/0/default.jpg`,
-      `${baseUrl}/full/1500,/0/default.jpg`,
-      `${baseUrl}/full/1000,/0/default.jpg`,
-      `${baseUrl}/full/800,/0/default.jpg`,
-      baseUrl
-    );
-  }
-  // 7. Direct URL fallback
-  else if (img.url) {
-    console.log(`Direct URL (non-IIIF): ${img.url}`);
-    // Already added above, but make sure it's there
-  }
-  
-  // Remove duplicates while preserving order
-  const uniqueUrls = [...new Set(urlsToTry)];
-  console.log(`Final URLs to try for image ${index} (${uniqueUrls.length} total):`, uniqueUrls);
-  
-  // Log the first few URLs for debugging
-  uniqueUrls.slice(0, 5).forEach((url, i) => {
-    console.log(`  ${i + 1}. ${url}`);
   });
-  
-  return uniqueUrls;
-}
-}
-// --- Download Selected Images (main entry point) ---
-async function downloadSelected() {
-  console.log("Download function called");
-  
-  const selectedCheckboxes = Array.from(
-    document.querySelectorAll('input[type="checkbox"]:checked')
-  );
-  
-  console.log("Selected checkboxes:", selectedCheckboxes);
-  console.log("Images array:", images);
-  
-  const selectedImages = selectedCheckboxes.map((checkbox) => {
-    const index = parseInt(checkbox.value);
-    const img = images[index];
-    console.log(`Checkbox value: ${checkbox.value}, Index: ${index}, Image:`, img);
-    return img;
-  }).filter(img => img !== undefined);
 
-  console.log("Selected images after filtering:", selectedImages);
+  showMessage(`Manifest loaded successfully. ${images.length} images found.`);
+}
+
+// Extract thumbnail and full-resolution base URL from a canvas
+function extractCanvasImageUrls(canvas, index, isIIIFP3) {
+  let thumbnailUrl = "";
+  let fullImageUrlBase = "";
+
+  if (isIIIFP3) {
+    const body = canvas.items?.[0]?.items?.[0]?.body;
+    if (body) {
+      const b = Array.isArray(body) ? body[0] : body;
+      const svc = Array.isArray(b.service)
+        ? b.service.find(s => s.id && (s.id.includes("/iiif/") || s.type === "ImageService2" || s.type === "ImageService3"))
+        : (b.service?.id && (b.service.id.includes("/iiif/") || b.service.type === "ImageService2" || b.service.type === "ImageService3"))
+          ? b.service : null;
+
+      if (svc) {
+        fullImageUrlBase = svc.id.replace(/\/$/, '');
+        thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+      } else if (b.id) {
+        if (b.id.includes("/iiif/") && !b.id.includes("/full/")) {
+          fullImageUrlBase = b.id.replace(/\/$/, '');
+          thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+        } else {
+          fullImageUrlBase = thumbnailUrl = b.id;
+        }
+      }
+    }
+
+    // Fallback: thumbnail property
+    if (!thumbnailUrl && canvas.thumbnail?.[0]?.id) {
+      const thumb = canvas.thumbnail[0];
+      thumbnailUrl = thumb.id;
+      const svcId = thumb.service?.[0]?.id;
+      fullImageUrlBase = svcId
+        ? svcId.replace(/\/$/, '')
+        : (thumb.id.match(/^(.+\/iiif\/[^\/]+)/)?.[1] ?? thumb.id);
+    }
+
+    // Fallback: embedded P2-style resource
+    if (!thumbnailUrl) {
+      const res = canvas.images?.[0]?.resource;
+      if (res) {
+        if (res.service?.["@id"]) {
+          fullImageUrlBase = res.service["@id"].replace(/\/$/, '');
+          thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+        } else if (res["@id"]) {
+          fullImageUrlBase = thumbnailUrl = res["@id"];
+        }
+      }
+    }
+  } else {
+    // IIIF Presentation 2.x
+    const res = canvas.images?.[0]?.resource;
+    if (res) {
+      if (res.service?.["@id"]) {
+        fullImageUrlBase = res.service["@id"].replace(/\/$/, '');
+        thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+      } else if (res["@id"]) {
+        fullImageUrlBase = thumbnailUrl = res["@id"];
+      }
+    }
+  }
+
+  console.log(`Canvas ${index}: base=${fullImageUrlBase} thumb=${thumbnailUrl}`);
+  return { thumbnailUrl, fullImageUrlBase };
+}
+
+// Resolve the best full-resolution download URL for a given IIIF base
+function resolveDownloadUrl(base) {
+  if (!base) return base;
+  const isIIIFBase =
+    base.includes("/iiif/image/") ||
+    /\/images\/.+\/?$/.test(base) ||
+    /\/loris\/.+$/.test(base) ||
+    base.includes("iiifimage") ||
+    base.includes("gallica.bnf.fr/iiif") ||
+    base.includes("dlc.library.columbia.edu");
+
+  if (!isIIIFBase) return base;
+
+  if (base.includes("vatlib") || base.includes("digi.vatlib")) return `${base}/full/full/0/native.jpg`;
+  if (base.includes("gallica.bnf.fr"))                          return `${base}/full/full/0/native.jpg`;
+  if (base.includes("dlc.library.columbia.edu"))                return `${base}/full/max/0/default.jpg`;
+  if (base.includes("fragmentarium"))                           return `${base}/full/full/0/default.jpg`;
+  return `${base}/full/max/0/default.jpg`;
+}
+
+// Build a single image card DOM element
+function buildImageCard(imgIndex, thumbnailUrl, downloadUrl, infoUrl, imageLabel) {
+  const container = document.createElement("div");
+  container.className = "image-card fade-in-up";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.id = `img-${imgIndex}`;
+  checkbox.value = imgIndex;
+  checkbox.setAttribute("aria-label", `Select ${imageLabel}`);
+
+  const selectRow = document.createElement("div");
+  selectRow.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:10px;";
+  const selectSpan = document.createElement("span");
+  selectSpan.textContent = "Select for Download";
+  selectRow.append(checkbox, selectSpan);
+
+  const labelWrapper = document.createElement("label");
+  labelWrapper.htmlFor = `img-${imgIndex}`;
+  labelWrapper.style.display = "block";
+
+  const imgEl = document.createElement("img");
+  imgEl.src = thumbnailUrl;
+  imgEl.alt = imageLabel;
+  imgEl.style.cssText = "max-width:100%; height:auto; display:block; margin-bottom:10px; border-radius:var(--radius-md); border:1px solid var(--border-color);";
+  labelWrapper.appendChild(imgEl);
+
+  const labelText = document.createElement("p");
+  labelText.textContent = imageLabel;
+  labelText.style.cssText = "font-weight:bold; margin-bottom:5px; color:var(--text-primary); font-size:1.1rem;";
+
+  const urlLink = document.createElement("p");
+  urlLink.innerHTML = `<strong>Download URL:</strong> <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer">${downloadUrl.substring(0, 40)}...</a>`;
+  urlLink.style.cssText = "font-size:0.9rem; color:var(--text-secondary); margin-bottom:3px;";
+
+  const infoLink = document.createElement("p");
+  infoLink.innerHTML = infoUrl
+    ? `<strong>Info JSON:</strong> <a href="${infoUrl}" target="_blank" rel="noopener noreferrer">View info.json</a>`
+    : "Info JSON: N/A";
+  infoLink.style.cssText = "font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;";
+
+  container.append(selectRow, labelWrapper, labelText, urlLink, infoLink);
+  return container;
+}
+
+// ─── Download Entry Point ─────────────────────────────────────────────────────
+
+async function downloadSelected() {
+  const selectedImages = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+    .map(cb => images[parseInt(cb.value)])
+    .filter(Boolean);
 
   if (selectedImages.length === 0) {
     showMessage("No images selected. Please select at least one image to download.");
     return;
   }
 
-  // Get chunking preferences with proper null checks
-  const chunkCheckbox = document.getElementById("chunkCheckbox");
-  const chunkSizeInput = document.getElementById("chunkSize");
-  
-  console.log("Chunk checkbox element:", chunkCheckbox);
-  console.log("Chunk size input element:", chunkSizeInput);
-  
-  const shouldChunk = chunkCheckbox ? chunkCheckbox.checked : false;
-  const chunkSize = chunkSizeInput ? parseInt(chunkSizeInput.value) || 50 : 50;
+  const shouldChunk = document.getElementById("chunkCheckbox")?.checked ?? false;
+  const chunkSize   = parseInt(document.getElementById("chunkSize")?.value) || 50;
 
-  // Check if Gallica rate limiting is enabled
-  const gallicaCheckbox = document.getElementById("gallicaCheckbox");
-  const isGallica = gallicaCheckbox ? gallicaCheckbox.checked : false;
-
-  console.log("Chunking enabled:", shouldChunk);
-  console.log("Chunk size:", chunkSize);
-  console.log("Gallica rate limiting:", isGallica);
-  console.log("Total images to download:", selectedImages.length);
-  // Prepare images for the worker: compute URLs to try for each image
-  const imagesForWorker = selectedImages.map((img, idx) => {
-    const urls = buildUrlsToTry(img, idx);
-    return {
-      label: img.label,
-      filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.jpg',
-      urls: urls,
-    };
-  });
+  const imagesForWorker = selectedImages.map((img, idx) => ({
+    label: img.label,
+    filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.jpg',
+    urls: buildUrlsToTry(img, idx),
+  }));
 
   initDownloadWorkerIfNeeded();
   if (!downloadWorker) {
@@ -1008,461 +465,64 @@ async function downloadSelected() {
   downloadWorker.postMessage({
     cmd: 'download',
     images: imagesForWorker,
-    options: { shouldChunk: shouldChunk, chunkSize: chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' },
+    options: { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' },
   });
 }
 
-// --- Chunked Download Function ---
-async function downloadSelectedChunked(selectedImages, chunkSize, isGallica) {
-  const totalImages = selectedImages.length;
-  const chunks = [];
-  
-  // Split images into chunks
-  for (let i = 0; i < totalImages; i += chunkSize) {
-    chunks.push(selectedImages.slice(i, i + chunkSize));
-  }
+// ─── Fetch & Binary Helpers ───────────────────────────────────────────────────
 
-  console.log(`Splitting ${totalImages} images into ${chunks.length} chunks of ${chunkSize} images each`);
-  
-  showMessage(`Preparing to download ${totalImages} images in ${chunks.length} zip files...`);
-  resetProgress();
-
-  let overallProgress = 0;
-  const totalChunks = chunks.length;
-
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    const chunk = chunks[chunkIndex];
-    const chunkNumber = chunkIndex + 1;
-    
-    showMessage(`Processing chunk ${chunkNumber}/${totalChunks} (${chunk.length} images)...`);
-    
-    try {
-      if (isGallica) {
-        await downloadChunkSequential(chunk, chunkNumber, chunkIndex, totalChunks);
-      } else {
-        await downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks);
-      }
-      
-      overallProgress = (chunkNumber / totalChunks) * 100;
-      updateProgress(overallProgress);
-      
-      // Brief pause between chunks
-      if (chunkIndex < chunks.length - 1) {
-        showMessage(`Chunk ${chunkNumber} complete. Preparing next chunk...`);
-        await sleep(2000);
-      }
-      
-    } catch (error) {
-      console.error(`Error processing chunk ${chunkNumber}:`, error);
-      showMessage(`Error in chunk ${chunkNumber}: ${error.message}`);
-    }
-  }
-
-  showMessage(`All ${totalChunks} zip files downloaded successfully!`);
-  setTimeout(() => resetProgress(), 3000);
-}
-
-// --- Download Single Chunk (Sequential for Gallica) ---
-async function downloadChunkSequential(chunk, chunkNumber, chunkIndex, totalChunks) {
-  var zip = new JSZip();
-  var count = 0;
-  var errors = 0;
-  const startTime = Date.now();
-
-  console.log(`Starting sequential download of chunk ${chunkNumber} (${chunk.length} images)`);
-
-  for (let i = 0; i < chunk.length; i++) {
-    const img = chunk[i];
-    
-    if (!img || !img.url) {
-      console.error(`Image at index ${i} in chunk ${chunkNumber} is invalid:`, img);
-      errors++;
-      count++;
-      continue;
-    }
-    
-    const filename = sanitizeFilename(img.label || `image_${i + 1}`) + ".jpg";
-    const urlsToTry = buildUrlsToTry(img, i);
-    
-    let success = false;
-    for (let urlIndex = 0; urlIndex < urlsToTry.length; urlIndex++) {
-      const url = urlsToTry[urlIndex];
-      try {
-        console.log(`🔄 Chunk ${chunkNumber}: Attempt ${urlIndex + 1}/${urlsToTry.length} for ${filename}`);
-        const data = await fetchBinary(url);
-        let binaryData = processBinaryData(data);
-        
-        if (binaryData.length > 5000) {
-          zip.file(filename, binaryData, { binary: true });
-          console.log(`✅ Chunk ${chunkNumber}: Added ${filename} (${binaryData.length} bytes)`);
-          success = true;
-          break;
-        }
-      } catch (err) {
-        console.warn(`❌ Chunk ${chunkNumber}: Failed ${filename} from ${url.substring(0, 40)}...`);
-      }
-    }
-
-    if (!success) {
-      console.error(`❌ Chunk ${chunkNumber}: Failed ${filename} from all URLs`);
-      errors++;
-    }
-
-    count++;
-    
-    // Add delay for Gallica (except for last image in chunk)
-    if (count < chunk.length) {
-      showMessage(`Chunk ${chunkNumber}: Downloaded ${count}/${chunk.length} images. Waiting 15 seconds...`);
-      await sleep(15000);
-    }
-  }
-
-  await saveChunkZip(zip, chunkNumber, count, errors, chunk.length);
-}
-
-// --- Download Single Chunk (Parallel for non-Gallica) ---
-async function downloadChunkParallel(chunk, chunkNumber, chunkIndex, totalChunks) {
-  return new Promise((resolve, reject) => {
-    var zip = new JSZip();
-    var count = 0;
-    var errors = 0;
-
-    console.log(`Starting parallel download of chunk ${chunkNumber} (${chunk.length} images)`);
-
-    chunk.forEach(function (img, index) {
-      if (!img || !img.url) {
-        console.error(`Image at index ${index} in chunk ${chunkNumber} is invalid:`, img);
-        errors++;
-        count++;
-        
-        if (count === chunk.length) {
-          saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
-            .then(resolve)
-            .catch(reject);
-        }
-        return;
-      }
-
-      var filename = sanitizeFilename(img.label || `image_${index + 1}`) + ".jpg";
-      const urlsToTry = buildUrlsToTry(img, index);
-      let attemptIndex = 0;
-
-      function tryDownload() {
-        if (attemptIndex >= urlsToTry.length) {
-          errors++;
-          console.error(`❌ Chunk ${chunkNumber}: All attempts failed for ${filename}`);
-          count++;
-          
-          if (count === chunk.length) {
-            saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
-              .then(resolve)
-              .catch(reject);
-          }
-          return;
-        }
-
-        const currentUrl = urlsToTry[attemptIndex];
-
-        fetchBinary(currentUrl).then(function(data) {
-          let binaryData = processBinaryData(data);
-
-          if (binaryData.length > 5000) {
-            zip.file(filename, binaryData, { binary: true });
-            console.log(`✅ Chunk ${chunkNumber}: Added ${filename} (${binaryData.length} bytes)`);
-          } else {
-            console.log(`⚠️ Chunk ${chunkNumber}: Data too small for ${filename}, trying next URL...`);
-            attemptIndex++;
-            setTimeout(tryDownload, 500);
-            return;
-          }
-
-          count++;
-
-          if (count === chunk.length) {
-            saveChunkZip(zip, chunkNumber, count, errors, chunk.length)
-              .then(resolve)
-              .catch(reject);
-          }
-        }).catch(function(err){
-          console.log(`❌ Chunk ${chunkNumber}: Attempt ${attemptIndex + 1} failed for ${filename}`);
-          attemptIndex++;
-          setTimeout(tryDownload, 500);
-        });
-      }
-
-      tryDownload();
-    });
-  });
-}
-
-// --- Save Individual Chunk as Zip ---
-async function saveChunkZip(zip, chunkNumber, count, errors, totalInChunk) {
-  const successCount = count - errors;
-
-  if (successCount === 0) {
-    throw new Error(`No images were successfully downloaded in chunk ${chunkNumber}`);
-  }
-
-  try {
-    const content = await zip.generateAsync({ type: "blob" });
-    const filename = `images_chunk_${chunkNumber.toString().padStart(3, '0')}.zip`;
-    saveAs(content, filename);
-    
-    console.log(`✅ Chunk ${chunkNumber} saved: ${successCount}/${totalInChunk} images`);
-    return { success: true, downloaded: successCount, failed: errors };
-  } catch (error) {
-    console.error(`Error creating zip for chunk ${chunkNumber}:`, error);
-    throw error;
-  }
-}
-
-// Enhanced error handling for parallel downloads
-function downloadSelectedParallel(selectedImages) {
-  var zip = new JSZip();
-  var count = 0;
-  var errors = 0;
-  const startTime = Date.now();
-
-  showMessage("Preparing images for download...");
-  resetProgress();
-  showDetailedProgress(0, selectedImages.length, "Starting parallel download...", startTime, 0);
-
-  console.log(`Starting parallel download of ${selectedImages.length} images...`);
-
-  selectedImages.forEach(function (img, index) {
-    if (!img || !img.url) {
-      console.error(`Image at index ${index} is invalid:`, img);
-      errors++;
-      count++;
-      updateProgress((count / selectedImages.length) * 100);
-      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${index}`, startTime, errors);
-      
-      if (count === selectedImages.length) {
-        completeZipDownload(zip, count, errors, selectedImages.length);
-      }
-      return;
-    }
-    
-    var filename = sanitizeFilename(img.label || `image_${index + 1}`) + ".jpg";
-    console.log(`Processing ${filename} from ${img.url}`);
-
-    const urlsToTry = buildUrlsToTry(img, index);
-    let attemptIndex = 0;
-
-    function tryDownload() {
-      if (attemptIndex >= urlsToTry.length) {
-        errors++;
-        console.error(`❌ All ${urlsToTry.length} download attempts failed for ${filename}`);
-        count++;
-        updateProgress((count / selectedImages.length) * 100);
-        updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors);
-
-        if (count === selectedImages.length) {
-          completeZipDownload(zip, count, errors, selectedImages.length);
-        }
-        return;
-      }
-
-      const currentUrl = urlsToTry[attemptIndex];
-      console.log(`🔄 Attempt ${attemptIndex + 1}/${urlsToTry.length} for ${filename}: ${currentUrl.substring(0, 60)}...`);
-      
-      updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${attemptIndex + 1}/${urlsToTry.length})`, startTime, errors);
-
-      fetchBinary(currentUrl).then(function(data) {
-        console.log(`✅ Downloaded ${filename}:`, typeof data, data.byteLength || data.length, 'bytes');
-
-        let binaryData = processBinaryData(data);
-
-        // Check if we got actual image data (not an error page)
-        if (binaryData.length > 5000) {
-          zip.file(filename, binaryData, { binary: true });
-          console.log(`📁 Added ${filename} to zip: ${binaryData.length} bytes`);
-          
-          count++;
-          updateProgress((count / selectedImages.length) * 100);
-          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors);
-
-          if (count === selectedImages.length) {
-            completeZipDownload(zip, count, errors, selectedImages.length);
-          }
-        } else {
-          console.log(`⚠️ Data too small for ${filename} (${binaryData.length} bytes), trying next URL...`);
-          console.log(`📝 Small data preview:`, new TextDecoder().decode(binaryData.slice(0, 200)));
-          
-          // Try next URL
-          attemptIndex++;
-          setTimeout(tryDownload, 1000);
-          return;
-        }
-      }).catch(function(err){
-        console.log(`❌ Attempt ${attemptIndex + 1} failed for ${filename}:`, err.message || err);
-        attemptIndex++;
-        setTimeout(tryDownload, 500);
-      });
-    }
-
-    tryDownload();
-  });
-}
-
-// Enhanced fetchBinary function with better error handling
 function fetchBinary(url) {
-  return new Promise((resolve, reject) => {
-    console.log(`🌐 Fetching: ${url}`);
-    
-    JSZipUtils.getBinaryContent(url, function (err, data) {
-      if (err) {
-        console.log(`❌ Fetch failed for ${url}:`, err);
-        reject(new Error(`Failed to fetch ${url}: ${err.message || err}`));
-      } else {
-        console.log(`✅ Fetch successful for ${url}: ${data.length || data.byteLength} bytes`);
-        resolve(data);
-      }
-    });
+  return fetch(url, { mode: 'cors' }).then(resp => {
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return resp.arrayBuffer();
   });
 }
 
-// --- Sequential Download with Enhanced Progress ---
-async function downloadSelectedSequential(selectedImages) {
-  var zip = new JSZip();
-  var count = 0;
-  var errors = 0;
-  const startTime = Date.now();
-
-  showMessage("Preparing images for download (with rate limiting)...");
-  resetProgress();
-  showDetailedProgress(0, selectedImages.length, "Starting sequential download...", startTime, 0);
-
-  console.log(`Starting sequential download of ${selectedImages.length} images...`);
-
-  for (let i = 0; i < selectedImages.length; i++) {
-    const img = selectedImages[i];
-    
-    if (!img || !img.url) {
-      console.error(`Image at index ${i} is invalid:`, img);
-      errors++;
-      count++;
-      updateDetailedProgress(count, selectedImages.length, `Skipped invalid image ${i}`, startTime, errors);
-      continue;
-    }
-    
-    const filename = sanitizeFilename(img.label || `image_${i + 1}`) + ".jpg";
-    console.log(`Processing ${filename} from ${img.url}`);
-    
-    updateDetailedProgress(count, selectedImages.length, `Processing ${filename}...`, startTime, errors);
-    
-    const urlsToTry = buildUrlsToTry(img, i);
-    
-    let success = false;
-    for (let urlIndex = 0; urlIndex < urlsToTry.length; urlIndex++) {
-      const url = urlsToTry[urlIndex];
-      try {
-        console.log(`🔄 Attempt ${urlIndex + 1}/${urlsToTry.length} for ${filename}: ${url.substring(0, 60)}...`);
-        updateDetailedProgress(count, selectedImages.length, `Downloading ${filename} (attempt ${urlIndex + 1}/${urlsToTry.length})`, startTime, errors);
-        
-        const data = await fetchBinary(url);
-        let binaryData = processBinaryData(data);
-        
-        if (binaryData.length > 5000) {
-          zip.file(filename, binaryData, { binary: true });
-          console.log(`✅ Added ${filename} to zip: ${binaryData.length} bytes`);
-          updateDetailedProgress(count, selectedImages.length, `Added ${filename}`, startTime, errors);
-          success = true;
-          break;
-        } else {
-          console.warn(`⚠️ Data too small (${binaryData.length} bytes) from ${url.substring(0, 40)}...`);
-        }
-      } catch (err) {
-        console.warn(`❌ Failed to download from ${url.substring(0, 40)}...:`, err.message || err);
-      }
-    }
-
-    if (!success) {
-      console.error(`❌ Failed to download ${filename} from all ${urlsToTry.length} URLs`);
-      errors++;
-      updateDetailedProgress(count, selectedImages.length, `Failed: ${filename}`, startTime, errors);
-    }
-
-    count++;
-    updateProgress((count / selectedImages.length) * 100);
-
-    if (count < selectedImages.length) {
-      const delay = img.url && img.url.includes("gallica.bnf.fr") ? 15000 : 2000;
-      showMessage(`Downloaded ${count}/${selectedImages.length} images. Waiting ${delay/1000} seconds...`);
-      updateDetailedProgress(count, selectedImages.length, `Waiting ${delay/1000}s before next download...`, startTime, errors);
-      await sleep(delay);
-    }
+function processBinaryData(data) {
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (typeof data === "string") {
+    const out = new Uint8Array(data.length);
+    for (let i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
+    return out;
   }
-
-  await completeZipDownload(zip, count, errors, selectedImages.length);
+  return data;
 }
 
-// --- Enhanced Progress Functions ---
+// ─── Progress UI ──────────────────────────────────────────────────────────────
+
 function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0) {
-  let detailedProgress = document.getElementById("detailed_progress");
-
-  if (!detailedProgress) {
-    detailedProgress = document.createElement("div");
-    detailedProgress.id = "detailed_progress";
-    detailedProgress.style.cssText = `
-      margin: 15px 0;
-      padding: 15px;
-      background: var(--surface-color);
-      border-radius: var(--radius-md);
-      border-left: 4px solid var(--accent-color);
-      font-family: monospace;
-      font-size: 14px;
-      line-height: 1.4;
-      color: var(--text-primary);
+  let el = document.getElementById("detailed_progress");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "detailed_progress";
+    el.style.cssText = `
+      margin:15px 0; padding:15px;
+      background:var(--surface-color); border-radius:var(--radius-md);
+      border-left:4px solid var(--accent-color);
+      font-family:monospace; font-size:14px; line-height:1.4; color:var(--text-primary);
     `;
-
-    const progressSection = document.getElementById("progress_bar");
-    progressSection.parentNode.insertBefore(detailedProgress, progressSection.nextSibling);
+    const pb = document.getElementById("progress_bar");
+    pb.parentNode.insertBefore(el, pb.nextSibling);
   }
+  el.style.display = "block";
 
-  detailedProgress.style.display = "block";
-
-  const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
   let timeInfo = "";
-
   if (startTime && completed > 0) {
-    const elapsed = (Date.now() - startTime) / 1000;
-    const avgTime = elapsed / completed;
-    const remaining = (total - completed) * avgTime;
-    const eta = remaining > 0 ? `ETA: ${formatTime(remaining)}` : "Almost done!";
-    timeInfo = `Time: ${formatTime(elapsed)} | ${eta}`;
+    const elapsed   = (Date.now() - startTime) / 1000;
+    const remaining = (total - completed) * (elapsed / completed);
+    timeInfo = `Time: ${formatTime(elapsed)} | ${remaining > 0 ? 'ETA: ' + formatTime(remaining) : 'Almost done!'}`;
   }
 
-  let statusHtml = `
-    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+  el.innerHTML = `
+    <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
       <strong>Download Progress</strong>
-      <span style="color: var(--primary-color);">${percentage}% (${completed}/${total})</span>
+      <span style="color:var(--primary-color);">${pct}% (${completed}/${total})</span>
     </div>
+    ${timeInfo ? `<div style="color:var(--text-secondary); margin-bottom:8px; font-size:12px;">${timeInfo}</div>` : ''}
+    <div style="margin-bottom:8px;"><strong>Status:</strong> ${currentAction}</div>
+    ${failed > 0 ? `<div style="color:var(--warning-color); font-size:12px;">⚠️ ${failed} image(s) failed</div>` : ''}
   `;
-
-  if (timeInfo) {
-    statusHtml += `
-      <div style="color: var(--text-secondary); margin-bottom: 8px; font-size: 12px;">
-        ${timeInfo}
-      </div>
-    `;
-  }
-
-  statusHtml += `
-    <div style="margin-bottom: 8px;">
-      <strong>Status:</strong> ${currentAction}
-    </div>
-  `;
-
-  if (failed > 0) {
-    statusHtml += `
-      <div style="color: var(--warning-color); font-size: 12px;">
-        ⚠️ ${failed} image(s) failed to download
-      </div>
-    `;
-  }
-
-  detailedProgress.innerHTML = statusHtml;
 }
 
 function updateDetailedProgress(completed, total, currentAction, startTime, failed = 0) {
@@ -1470,65 +530,19 @@ function updateDetailedProgress(completed, total, currentAction, startTime, fail
 }
 
 function formatTime(seconds) {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.round(seconds % 60);
-  return `${minutes}m ${remainingSeconds}s`;
+  return seconds < 60
+    ? `${Math.round(seconds)}s`
+    : `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
-// --- Helper function to process binary data ---
-function processBinaryData(data) {
-  let binaryData;
-  if (typeof data === "string") {
-    binaryData = new Uint8Array(data.length);
-    for (let j = 0; j < data.length; j++) {
-      binaryData[j] = data.charCodeAt(j) & 0xff;
-    }
-  } else if (data instanceof ArrayBuffer) {
-    binaryData = new Uint8Array(data);
-  } else {
-    binaryData = data;
-  }
-  return binaryData;
+// ─── General Helpers ──────────────────────────────────────────────────────────
+
+function selectAll() {
+  const boxes = document.querySelectorAll('input[type="checkbox"]');
+  const allChecked = Array.from(boxes).every(b => b.checked);
+  boxes.forEach(b => (b.checked = !allChecked));
 }
 
-// Fetch binary via modern Fetch API returning an ArrayBuffer
-function fetchBinary(url) {
-  return fetch(url, { mode: 'cors' }).then((resp) => {
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    return resp.arrayBuffer();
-  });
-}
-
-// --- Complete Single Zip Download ---
-async function completeZipDownload(zip, count, errors, totalImages) {
-  const successCount = count - errors;
-
-  if (successCount === 0) {
-    showMessage("Error: No images were successfully downloaded.");
-    resetProgress();
-    return;
-  }
-
-  showMessage("Creating zip file...");
-
-  try {
-    const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, "selected_images.zip");
-    showMessage(
-      `Download complete! ${successCount}/${totalImages} images downloaded.${
-        errors > 0 ? ` ${errors} failed.` : ""
-      }`
-    );
-    resetProgress();
-  } catch (error) {
-    showMessage("Error creating zip file.");
-    console.error("Error creating zip file:", error);
-    resetProgress();
-  }
-}
-
-// --- Helper Functions ---
 function sanitizeFilename(filename) {
   return filename
     .replace(/[<>:"/\\|?*]/g, "_")
@@ -1539,47 +553,35 @@ function sanitizeFilename(filename) {
 }
 
 function showMessage(text) {
-  var resultContainer = document.getElementById("result");
-  resultContainer.innerText = text;
+  document.getElementById("result").innerText = text;
 }
 
 function resetProgress() {
-  var progressBar = document.getElementById("progress_bar");
-  progressBar.querySelector(".progress-bar").style.width = "0%";
-  progressBar.querySelector(".progress-bar").innerText = "0%";
-  progressBar.classList.add("hide");
-
-  const detailedProgress = document.getElementById("detailed_progress");
-  if (detailedProgress) {
-    detailedProgress.style.display = "none";
-  }
+  const pb = document.getElementById("progress_bar");
+  pb.querySelector(".progress-bar").style.width = "0%";
+  pb.querySelector(".progress-bar").innerText = "0%";
+  pb.classList.add("hide");
+  const dp = document.getElementById("detailed_progress");
+  if (dp) dp.style.display = "none";
 }
 
 function updateProgress(percent) {
-  var progressBar = document.getElementById("progress_bar");
-  progressBar.classList.remove("hide");
-  progressBar.querySelector(".progress-bar").style.width = percent + "%";
-  progressBar.querySelector(".progress-bar").innerText =
-    Math.round(percent) + "%";
+  const pb = document.getElementById("progress_bar");
+  pb.classList.remove("hide");
+  pb.querySelector(".progress-bar").style.width = percent + "%";
+  pb.querySelector(".progress-bar").innerText = Math.round(percent) + "%";
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// ─── Event Listeners ──────────────────────────────────────────────────────────
 
-
-// --- Event Listeners ---
 document.addEventListener("DOMContentLoaded", function () {
-  document
-    .getElementById("loadManifest")
-    .addEventListener("click", getManifest);
+  document.getElementById("loadManifest").addEventListener("click", getManifest);
   document.getElementById("selectAll").addEventListener("click", selectAll);
-  document
-    .getElementById("downloadSelected")
-    .addEventListener("click", downloadSelected);
+  document.getElementById("downloadSelected").addEventListener("click", downloadSelected);
 });
 
-console.log(
-  "main.js loaded successfully with enhanced progress tracking and Columbia support"
-);
+console.log("main.js loaded successfully");
