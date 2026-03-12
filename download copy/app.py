@@ -7,7 +7,6 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from urllib.parse import quote, unquote, urlparse
-import re
 
 from flask import Flask, request, Response, abort
 from werkzeug.utils import secure_filename
@@ -41,6 +40,19 @@ retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[429, 500, 502, 50
 adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
 session.mount("http://", adapter)
 session.mount("https://", adapter)
+
+
+def generate_streamed_response(resp, chunk_size=8192):
+    """Generator function to stream response content in chunks."""
+    try:
+        for chunk in resp.iter_content(chunk_size=chunk_size):
+            if chunk:
+                yield chunk
+    finally:
+        try:
+            resp.close()
+        except Exception:
+            pass
 
 
 def fetch_from_server(url):
@@ -100,7 +112,6 @@ def download():
     if not ark or not fol:
         abort(400, "ark and f are required query parameters")
     
-    # Try multiple URL patterns for CNRS
     def is_likely_image(resp):
         ct = (resp.headers.get('Content-Type') or '').lower()
         if not ct.startswith('image/'):
@@ -116,19 +127,7 @@ def download():
     def stream_response(resp, filename, fallback_mimetype='image/jpeg'):
         mimetype = resp.headers.get('Content-Type') or fallback_mimetype
         safe_name = secure_filename(filename)
-
-        def generate():
-            try:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    if chunk:
-                        yield chunk
-            finally:
-                try:
-                    resp.close()
-                except Exception:
-                    pass
-
-        return Response(generate(), mimetype=mimetype,
+        return Response(generate_streamed_response(resp), mimetype=mimetype,
                         headers={"Content-Disposition": f'attachment; filename="{safe_name}"'})
 
     # Try multiple URL patterns for CNRS
@@ -198,25 +197,11 @@ def proxy():
             filename = 'image'
         filename = secure_filename(filename)
 
-        def generate():
-            try:
-                for chunk in resp.iter_content(chunk_size=8192):
-                    if chunk:
-                        yield chunk
-            finally:
-                try:
-                    resp.close()
-                except Exception:
-                    pass
-
         return Response(
-            generate(),
+            generate_streamed_response(resp),
             mimetype=content_type,
             headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type"
+                "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
     except Exception as e:
@@ -259,19 +244,8 @@ def columbia():
                 filename = f"columbia_{doc_id.replace('/', '_')}_p{canvas}.jpg"
                 mimetype = resp.headers.get('Content-Type') or 'image/jpeg'
 
-                def generate():
-                    try:
-                        for chunk in resp.iter_content(chunk_size=8192):
-                            if chunk:
-                                yield chunk
-                    finally:
-                        try:
-                            resp.close()
-                        except Exception:
-                            pass
-
                 return Response(
-                    generate(),
+                    generate_streamed_response(resp),
                     mimetype=mimetype,
                     headers={"Content-Disposition": f'attachment; filename="{secure_filename(filename)}"'}
                 )
