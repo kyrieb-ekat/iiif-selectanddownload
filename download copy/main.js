@@ -418,8 +418,6 @@ async function getManifest() {
     if (gallicaContainer) {
       if (isGallicaManifest) {
         gallicaContainer.style.display = "block";
-        // Don't automatically check - let user decide
-        // document.getElementById("gallicaCheckbox").checked = true;
       } else {
         gallicaContainer.style.display = "none";
         document.getElementById("gallicaCheckbox").checked = false;
@@ -447,25 +445,31 @@ async function getManifest() {
         images: canvas.images,
         items: canvas.items,
       });
+
       // --- Extract Image URLs based on IIIF Version and Fallbacks ---
       if (isIIIFP3) {
         // --- Try IIIF Presentation 3.0 parsing first ---
         const annotationPage = canvas.items && canvas.items[0];
-        const annotation =
-          annotationPage && annotationPage.items && annotationPage.items[0];
+        const annotation = annotationPage && annotationPage.items && annotationPage.items[0];
         const body = annotation && annotation.body;
 
+        console.log(`Canvas ${index} P3 structure:`, {
+          annotationPage: annotationPage,
+          annotation: annotation,
+          body: body
+        });
+
         if (body) {
-          if (
-            body.service &&
-            Array.isArray(body.service) &&
-            body.service.length > 0
-          ) {
-            const imageService = body.service.find(
+          // Handle array of bodies (some P3 manifests have multiple bodies)
+          const bodyToProcess = Array.isArray(body) ? body[0] : body;
+
+          console.log(`Canvas ${index} processing body:`, bodyToProcess);
+
+          if (bodyToProcess.service && Array.isArray(bodyToProcess.service) && bodyToProcess.service.length > 0) {
+            const imageService = bodyToProcess.service.find(
               (s) =>
                 s.id &&
-                (s.id.includes("/iiif/image/") ||
-                  s.id.match(/\/images\/.+\/?$/) ||
+                (s.id.includes("/iiif/") ||
                   s.type === "ImageService2" ||
                   s.type === "ImageService3")
             );
@@ -474,40 +478,97 @@ async function getManifest() {
                 ? imageService.id.slice(0, -1)
                 : imageService.id;
               thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-            } else if (body.id) {
-              fullImageUrlBase = body.id;
-              thumbnailUrl = body.id;
+              console.log(`Canvas ${index} found image service:`, imageService.id);
             }
-          } else if (body.id) {
-            fullImageUrlBase = body.id;
-            thumbnailUrl = body.id;
+          }
+          // Handle single service object (not array)
+          else if (bodyToProcess.service && bodyToProcess.service.id) {
+            const serviceId = bodyToProcess.service.id;
+            if (
+              serviceId.includes("/iiif/") ||
+              bodyToProcess.service.type === "ImageService2" ||
+              bodyToProcess.service.type === "ImageService3"
+            ) {
+              fullImageUrlBase = serviceId.endsWith("/")
+                ? serviceId.slice(0, -1)
+                : serviceId;
+              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+              console.log(`Canvas ${index} found single service:`, serviceId);
+            }
+          }
+          // Fallback to body.id if no service found
+          else if (bodyToProcess.id) {
+            console.log(`Canvas ${index} using body.id:`, bodyToProcess.id);
+            // Check if the body.id is a direct image or needs IIIF parameters
+            if (bodyToProcess.id.includes("/iiif/") && !bodyToProcess.id.includes("/full/")) {
+              // It's an IIIF base URL, add parameters
+              fullImageUrlBase = bodyToProcess.id.endsWith("/")
+                ? bodyToProcess.id.slice(0, -1)
+                : bodyToProcess.id;
+              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+            } else {
+              // It's a direct image URL
+              fullImageUrlBase = bodyToProcess.id;
+              thumbnailUrl = bodyToProcess.id;
+            }
           }
         }
 
-        // --- FALLBACK for P3 manifests that embed P2-style images array ---
+        // --- ENHANCED FALLBACK for P3 manifests ---
         if (!thumbnailUrl) {
-          console.log(
-            "P3 parsing failed for canvas, attempting P2 fallback:",
-            canvas
-          );
-          const imageResource =
-            canvas.images && canvas.images[0] && canvas.images[0].resource;
-          if (imageResource) {
-            if (imageResource.service && imageResource.service["@id"]) {
-              fullImageUrlBase = imageResource.service["@id"].endsWith("/")
-                ? imageResource.service["@id"].slice(0, -1)
-                : imageResource.service["@id"];
-              thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
-            } else if (imageResource["@id"]) {
-              fullImageUrlBase = imageResource["@id"];
-              thumbnailUrl = imageResource["@id"];
+          console.log(`Canvas ${index} P3 parsing failed, trying fallbacks...`);
+
+          // Try thumbnail property (common in P3)
+          if (canvas.thumbnail && canvas.thumbnail.length > 0) {
+            const thumb = canvas.thumbnail[0];
+            if (thumb.id) {
+              console.log(`Canvas ${index} using thumbnail:`, thumb.id);
+              thumbnailUrl = thumb.id;
+
+              // Try to derive full image URL from thumbnail
+              if (thumb.service && thumb.service.length > 0 && thumb.service[0].id) {
+                fullImageUrlBase = thumb.service[0].id.endsWith("/")
+                  ? thumb.service[0].id.slice(0, -1)
+                  : thumb.service[0].id;
+              } else {
+                // Try to extract base URL from thumbnail URL
+                const thumbMatch = thumb.id.match(/^(.+\/iiif\/[^\/]+)/);
+                if (thumbMatch) {
+                  fullImageUrlBase = thumbMatch[1];
+                } else {
+                  fullImageUrlBase = thumb.id;
+                }
+              }
+            }
+          }
+
+          // Try P2-style fallback embedded in P3
+          if (!thumbnailUrl) {
+            console.log(`Canvas ${index} trying P2 fallback in P3...`);
+            const imageResource = canvas.images && canvas.images[0] && canvas.images[0].resource;
+            if (imageResource) {
+              if (imageResource.service && imageResource.service["@id"]) {
+                fullImageUrlBase = imageResource.service["@id"].endsWith("/")
+                  ? imageResource.service["@id"].slice(0, -1)
+                  : imageResource.service["@id"];
+                thumbnailUrl = `${fullImageUrlBase}/full/!400,400/0/default.jpg`;
+                console.log(`Canvas ${index} P2 fallback found service:`, imageResource.service["@id"]);
+              } else if (imageResource["@id"]) {
+                fullImageUrlBase = imageResource["@id"];
+                thumbnailUrl = imageResource["@id"];
+                console.log(`Canvas ${index} P2 fallback found direct image:`, imageResource["@id"]);
+              }
             }
           }
         }
+
+        console.log(`Canvas ${index} P3 final URLs:`, {
+          fullImageUrlBase: fullImageUrlBase,
+          thumbnailUrl: thumbnailUrl
+        });
       } else {
         // This block handles true IIIF Presentation 2.x manifests
-        const imageResource =
-          canvas.images && canvas.images[0] && canvas.images[0].resource;
+        const imageResource = canvas.images && canvas.images[0] && canvas.images[0].resource;
         if (imageResource) {
           if (imageResource.service && imageResource.service["@id"]) {
             fullImageUrlBase = imageResource.service["@id"].endsWith("/")
@@ -529,7 +590,7 @@ async function getManifest() {
         return; // Skip this canvas if no displayable image URL found
       }
 
-      // Determine download URL (full resolution)
+      // --- 🔧 MOVED INSIDE LOOP: Determine download URL (full resolution) ---
       let downloadUrl = fullImageUrlBase;
       if (
         fullImageUrlBase &&
@@ -563,7 +624,8 @@ async function getManifest() {
 
       console.log(`Canvas ${index}: fullImageUrlBase = ${fullImageUrlBase}`);
       console.log(`Canvas ${index}: downloadUrl = ${downloadUrl}`);
-      // Standardize the info URL for the service (if an Image Service was found)
+      
+      // --- 🔧 MOVED INSIDE LOOP: Standardize the info URL for the service ---
       const isIIIFImageService =
         fullImageUrlBase &&
         (fullImageUrlBase.includes("/iiif/image/") ||
@@ -571,6 +633,7 @@ async function getManifest() {
       var infoUrl = isIIIFImageService ? `${fullImageUrlBase}/info.json` : null;
       const proxyUrl = buildProxyUrl(fullImageUrlBase); 
 
+      // --- 🔧 MOVED INSIDE LOOP: Add to images array ---
       images.push({
         url: downloadUrl,       // original remote image
         proxy: proxyUrl,        // same image via your Flask proxy
@@ -578,7 +641,7 @@ async function getManifest() {
         label: imageLabel,
       });
 
-      // --- Create HTML Elements for Image Display ---
+      // --- 🔧 MOVED INSIDE LOOP: Create HTML Elements for Image Display ---
       var container = document.createElement("div");
       container.className = "image-card fade-in-up";
 
@@ -646,8 +709,9 @@ async function getManifest() {
       container.appendChild(apiLink);
       container.appendChild(infoJsonLink);
 
+      // --- 🔧 MOVED INSIDE LOOP: Add to DOM ---
       document.getElementById("img-container").appendChild(container);
-    });
+    }); // 👈 End of canvases.forEach() loop
 
     showMessage(`Manifest loaded successfully. ${images.length} images found.`);
   } catch (error) {
@@ -1152,7 +1216,7 @@ async function saveChunkZip(zip, chunkNumber, count, errors, totalInChunk) {
   }
 }
 
-// --- Parallel Download with Enhanced Progress ---
+// Enhanced error handling for parallel downloads
 function downloadSelectedParallel(selectedImages) {
   var zip = new JSZip();
   var count = 0;
@@ -1209,7 +1273,7 @@ function downloadSelectedParallel(selectedImages) {
 
         let binaryData = processBinaryData(data);
 
-        // Check if we got actual image data
+        // Check if we got actual image data (not an error page)
         if (binaryData.length > 5000) {
           zip.file(filename, binaryData, { binary: true });
           console.log(`📁 Added ${filename} to zip: ${binaryData.length} bytes`);
@@ -1223,8 +1287,11 @@ function downloadSelectedParallel(selectedImages) {
           }
         } else {
           console.log(`⚠️ Data too small for ${filename} (${binaryData.length} bytes), trying next URL...`);
+          console.log(`📝 Small data preview:`, new TextDecoder().decode(binaryData.slice(0, 200)));
+          
+          // Try next URL
           attemptIndex++;
-          setTimeout(tryDownload, 500);
+          setTimeout(tryDownload, 1000);
           return;
         }
       }).catch(function(err){
@@ -1235,6 +1302,23 @@ function downloadSelectedParallel(selectedImages) {
     }
 
     tryDownload();
+  });
+}
+
+// Enhanced fetchBinary function with better error handling
+function fetchBinary(url) {
+  return new Promise((resolve, reject) => {
+    console.log(`🌐 Fetching: ${url}`);
+    
+    JSZipUtils.getBinaryContent(url, function (err, data) {
+      if (err) {
+        console.log(`❌ Fetch failed for ${url}:`, err);
+        reject(new Error(`Failed to fetch ${url}: ${err.message || err}`));
+      } else {
+        console.log(`✅ Fetch successful for ${url}: ${data.length || data.byteLength} bytes`);
+        resolve(data);
+      }
+    });
   });
 }
 
@@ -1497,5 +1581,5 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 console.log(
-  "main.js loaded successfully with enhanced progress tracking and CNRS support"
+  "main.js loaded successfully with enhanced progress tracking and Columbia support"
 );
