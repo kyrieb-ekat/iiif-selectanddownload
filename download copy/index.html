@@ -4,12 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>IIIF Manifest Viewer</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Cinzel:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
     <style>
       * {
         margin: 0;
@@ -18,36 +12,22 @@
       }
 
       :root {
-        --primary-color: #8b5a3c;
-        --primary-dark: #6b4423;
-        --secondary-color: #5d4037;
-        --accent-color: #d4af37;
-        --bg-color: #f8f5f0;
-        --surface-color: #f0ead6;
-        --card-color: #fffffb;
-        --text-primary: #3d2914;
-        --text-secondary: #5d4037;
-        --border-color: #d2c4a8;
-        --border-accent: #8b5a3c;
-        --success-color: #558b2f;
-        --warning-color: #bf6f00;
-        --radius-sm: 6px;
-        --radius-md: 10px;
-        --radius-lg: 14px;
-        --shadow-sm: 0 1px 3px rgba(61, 41, 20, 0.08);
-        --shadow-md: 0 4px 8px rgba(61, 41, 20, 0.12);
-        --shadow-lg: 0 8px 20px rgba(61, 41, 20, 0.15);
-        --glow: 0 0 0 3px rgba(212, 175, 55, 0.2);
+        --primary-color: #0969da;
+        --primary-dark: #033d8b;
+        --bg-color: #ffffff;
+        --bg-secondary: #f6f8fa;
+        --border-color: #d0d7de;
+        --text-primary: #24292f;
+        --text-secondary: #57606a;
+        --success-color: #1a7f37;
+        --error-color: #d1242f;
+        --radius: 0px;
+        --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
 
       body {
-        font-family: "Crimson Text", serif;
-        background: linear-gradient(
-          135deg,
-          var(--bg-color) 0%,
-          var(--surface-color) 100%
-        );
-        background-attachment: fixed;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+        background: var(--bg-secondary);
         color: var(--text-primary);
         min-height: 100vh;
         display: grid;
@@ -56,22 +36,21 @@
           "footer footer footer";
         grid-template-columns: 260px 1fr 320px;
         grid-template-rows: 1fr auto;
-        gap: 24px;
-        padding: 24px;
+        gap: 16px;
+        padding: 16px;
         line-height: 1.6;
       }
 
       /* Sidebar Styles */
       #sidebar {
         grid-area: sidebar;
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 28px;
-        box-shadow: var(--shadow-md);
-        border: 1px solid var(--border-color);
+        background: var(--bg-color);
+        padding: 16px;
         height: fit-content;
         position: sticky;
-        top: 24px;
+        top: 16px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow);
       }
 
       #sidebar ul {
@@ -85,87 +64,51 @@
       #sidebar a {
         color: var(--text-secondary);
         text-decoration: none;
-        padding: 14px 18px;
-        border-radius: var(--radius-sm);
+        padding: 10px 12px;
         display: flex;
         align-items: center;
         gap: 8px;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         border: 1px solid transparent;
         font-weight: 500;
       }
 
       #sidebar a:hover {
-        background: linear-gradient(
-          135deg,
-          var(--primary-color),
-          var(--accent-color)
-        );
-        color: var(--card-color);
-        transform: translateX(4px);
-        box-shadow: var(--shadow-md);
-        border-color: var(--border-accent);
+        background: var(--bg-secondary);
+        color: var(--primary-color);
+        border-color: var(--border-color);
       }
 
       /* Main Container */
       #container {
         grid-area: main;
         max-width: 100%;
+        display: flex;
+        flex-direction: column;
       }
 
       /* Header Section */
       .header-section {
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 40px;
-        margin-bottom: 28px;
-        box-shadow: var(--shadow-md);
+        background: var(--bg-color);
+        padding: 32px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
         border: 1px solid var(--border-color);
         text-align: center;
-        position: relative;
-      }
-
-      .header-section::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 4px;
-        background: linear-gradient(
-          90deg,
-          var(--primary-color),
-          var(--accent-color),
-          var(--primary-color)
-        );
-        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
       }
 
       .header-section h1 {
-        font-family: "Cinzel", serif;
-        font-size: 2.8rem;
+        font-size: 2rem;
         font-weight: 600;
         color: var(--text-primary);
-        margin-bottom: 16px;
-        position: relative;
-      }
-
-      .header-section h1::after {
-        content: "";
-        position: absolute;
-        bottom: -8px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 60px;
-        height: 2px;
-        background: var(--accent-color);
+        margin-bottom: 12px;
       }
 
       .header-section p {
         color: var(--text-secondary);
-        font-size: 1.15rem;
-        line-height: 1.7;
-        margin-bottom: 12px;
+        font-size: 1rem;
+        line-height: 1.6;
+        margin-bottom: 0;
         max-width: 600px;
         margin-left: auto;
         margin-right: auto;
@@ -174,37 +117,34 @@
       .sample-link {
         color: var(--primary-color);
         text-decoration: none;
-        font-family: "Monaco", "Menlo", monospace;
-        background: var(--surface-color);
-        padding: 10px 16px;
-        border-radius: var(--radius-sm);
+        font-family: monospace;
+        background: var(--bg-secondary);
+        padding: 8px 12px;
         display: inline-block;
         margin-top: 12px;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         border: 1px solid var(--border-color);
-        font-size: 0.9rem;
+        font-size: 0.85rem;
       }
 
       .sample-link:hover {
         background: var(--primary-color);
-        color: var(--card-color);
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-md);
+        color: white;
+        border-color: var(--primary-color);
       }
 
       /* Input Section */
       .input-section {
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 32px;
-        margin-bottom: 28px;
-        box-shadow: var(--shadow-md);
+        background: var(--bg-color);
+        padding: 24px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
         border: 1px solid var(--border-color);
       }
 
       .input-group {
         display: flex;
-        gap: 16px;
+        gap: 12px;
         align-items: stretch;
         flex-wrap: wrap;
       }
@@ -212,21 +152,18 @@
       #url {
         flex: 1;
         min-width: 320px;
-        padding: 16px 20px;
-        border: 2px solid var(--border-color);
-        border-radius: var(--radius-md);
-        background: var(--surface-color);
+        padding: 10px 12px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-color);
         color: var(--text-primary);
-        font-size: 1rem;
-        font-family: "Crimson Text", serif;
-        transition: all 0.3s ease;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
       }
 
       #url:focus {
         outline: none;
-        border-color: var(--accent-color);
-        box-shadow: var(--glow);
-        background: var(--card-color);
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.1);
       }
 
       #url::placeholder {
@@ -235,102 +172,70 @@
       }
 
       .btn {
-        padding: 16px 28px;
+        padding: 10px 16px;
         border: none;
-        border-radius: var(--radius-md);
-        font-size: 1rem;
-        font-weight: 600;
-        font-family: "Cinzel", serif;
+        font-size: 0.9rem;
+        font-weight: 500;
         cursor: pointer;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         position: relative;
         overflow: hidden;
-        letter-spacing: 0.3px;
-      }
-
-      .btn::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(
-          90deg,
-          transparent,
-          rgba(255, 255, 255, 0.2),
-          transparent
-        );
-        transition: left 0.5s;
-      }
-
-      .btn:hover::before {
-        left: 100%;
       }
 
       .btn-primary {
-        background: linear-gradient(
-          135deg,
-          var(--primary-color),
-          var(--accent-color)
-        );
-        color: var(--card-color);
-        border: 1px solid var(--border-accent);
+        background: var(--primary-color);
+        color: white;
+        border: 1px solid var(--primary-color);
       }
 
       .btn-primary:hover {
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-lg);
-        filter: brightness(1.1);
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
       }
 
       .btn-secondary {
-        background: var(--surface-color);
+        background: var(--bg-secondary);
         color: var(--text-primary);
-        border: 2px solid var(--border-color);
+        border: 1px solid var(--border-color);
       }
 
       .btn-secondary:hover {
         background: var(--border-color);
-        transform: translateY(-2px);
-        box-shadow: var(--shadow-md);
       }
 
       .btn-success {
-        background: linear-gradient(135deg, var(--success-color), #689f38);
-        color: var(--card-color);
+        background: var(--success-color);
+        color: white;
         border: 1px solid var(--success-color);
       }
 
       .btn-success:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(85, 139, 47, 0.3);
         filter: brightness(1.1);
       }
 
       /* Actions Section */
       .actions-section {
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 28px;
-        margin-bottom: 28px;
-        box-shadow: var(--shadow-md);
-        border: 1px solid var(--border-color);
+        background: var(--bg-color);
+        padding: 24px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border: 2px solid var(--primary-color);
+        border-radius: 8px;
+        z-index: 100;
       }
 
       .actions-grid {
         display: flex;
-        gap: 16px;
+        gap: 12px;
         flex-wrap: wrap;
       }
 
       /* Progress Section */
       .progress-section {
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 28px;
-        margin-bottom: 28px;
-        box-shadow: var(--shadow-md);
+        background: var(--bg-color);
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
         border: 1px solid var(--border-color);
       }
 
@@ -339,120 +244,107 @@
       }
 
       #progress_bar {
-        background: var(--surface-color);
-        border-radius: var(--radius-md);
+        background: var(--bg-secondary);
         overflow: hidden;
-        height: 16px;
-        margin-bottom: 16px;
+        height: 20px;
+        margin-bottom: 12px;
         border: 1px solid var(--border-color);
       }
 
       .progress-bar {
         height: 100%;
-        background: linear-gradient(
-          90deg,
-          var(--primary-color),
-          var(--accent-color)
-        );
-        border-radius: var(--radius-md);
+        background: var(--primary-color);
         transition: width 0.3s ease;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.85rem;
+        font-size: 0.75rem;
         font-weight: 600;
-        color: var(--card-color);
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        color: white;
       }
 
       #result {
         color: var(--text-secondary);
-        font-size: 1rem;
-        font-style: italic;
+        font-size: 0.9rem;
       }
 
       /* Images Container */
       #img-container {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 24px;
-        margin-top: 28px;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        margin-top: 16px;
       }
 
       .image-card {
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
+        background: var(--bg-color);
         overflow: hidden;
-        box-shadow: var(--shadow-md);
+        box-shadow: var(--shadow);
         border: 1px solid var(--border-color);
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
       }
 
       .image-card:hover {
-        transform: translateY(-4px);
-        box-shadow: var(--shadow-lg);
-        border-color: var(--border-accent);
+        border-color: var(--primary-color);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
       }
 
       /* Right Sidebar */
       #right-sidebar {
         grid-area: right-sidebar;
-        background: var(--card-color);
-        border-radius: var(--radius-lg);
-        padding: 32px;
-        box-shadow: var(--shadow-md);
-        border: 1px solid var(--border-color);
+        background: var(--bg-color);
+        padding: 16px;
         height: fit-content;
+        z-index: 50;
         position: sticky;
-        top: 24px;
+        top: 16px;
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow);
       }
 
       #right-sidebar h2 {
-        font-family: "Cinzel", serif;
-        color: var(--accent-color);
-        margin-bottom: 20px;
-        font-size: 1.6rem;
+        color: var(--text-primary);
+        margin-bottom: 12px;
+        font-size: 1rem;
         font-weight: 600;
       }
 
       #right-sidebar h3 {
-        font-family: "Cinzel", serif;
         color: var(--primary-color);
-        margin: 28px 0 16px 0;
-        font-size: 1.3rem;
+        margin: 16px 0 8px 0;
+        font-size: 0.95rem;
         font-weight: 600;
       }
 
       #right-sidebar p {
         color: var(--text-secondary);
-        line-height: 1.7;
-        margin-bottom: 16px;
-        font-size: 1rem;
+        line-height: 1.6;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
       }
 
       #right-sidebar a {
         color: var(--primary-color);
         text-decoration: none;
-        transition: all 0.3s ease;
+        transition: all 0.2s ease;
         font-weight: 500;
       }
 
       #right-sidebar a:hover {
-        color: var(--accent-color);
+        color: var(--primary-dark);
         text-decoration: underline;
       }
 
       /* Footer */
       #footer {
         grid-area: footer;
-        background: var(--surface-color);
-        border-radius: var(--radius-lg);
-        padding: 24px;
+        background: var(--bg-color);
+        padding: 16px;
         text-align: center;
         color: var(--text-secondary);
-        border: 1px solid var(--border-color);
-        margin-top: 28px;
-        font-family: "Cinzel", serif;
+        border-top: 1px solid var(--border-color);
+        margin-top: 16px;
+        font-size: 0.85rem;
       }
 
       /* Utility Classes */
@@ -551,9 +443,7 @@
     <!-- Left Sidebar -->
     <div id="sidebar">
       <ul>
-        <li><a href="../index.html">🏠 Home</a></li>
-        <!-- <li><a href="#instructions">📋 Instructions</a></li>
-            <li><a href="#manifest">📄 Enter Manifest</a></li> -->
+        <li><a href="../index.html">Home</a></li>
       </ul>
     </div>
 
@@ -584,38 +474,31 @@
             Load Manifest
           </button>
         </div>
-        <div
-          style="
-            margin-top: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-          "
-        >
-          <label
-            for="iiifVersion"
-            style="font-weight: bold; color: var(--text-primary)"
-            >IIIF Version:</label
-          >
+      </div>
+
+      <!-- Actions Section -->
+      <div class="actions-section">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+          <label for="iiifVersion" style="font-weight: bold; color: var(--text-primary)">
+            IIIF Version:
+          </label>
           <select
             id="iiifVersion"
             style="
               padding: 8px 12px;
               border-radius: var(--radius-sm);
               border: 1px solid var(--border-color);
-              background: var(--surface-color);
+              background: var(--bg-secondary);
               color: var(--text-primary);
-              font-family: 'Crimson Text', serif;
+              font-family: inherit;
             "
           >
             <option value="auto">Auto-Detect</option>
             <option value="p3">Presentation 3.0</option>
             <option value="p2">Presentation 2.x</option>
           </select>
-          </select>
+        </div>
 
-      <!-- Actions Section -->
-      <div class="actions-section">
         <div class="actions-grid">
           <button id="selectAll" class="btn btn-secondary">
             Select/Deselect All
