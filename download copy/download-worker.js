@@ -79,8 +79,8 @@ self.addEventListener('message', async (ev) => {
     try {
       const blob = await zip.generateAsync({ type: 'blob' });
       const chunkName = shouldChunk ? `images_chunk_${String(c + 1).padStart(3, '0')}.zip` : (options.outputName || 'selected_images.zip');
-      // Transfer the blob back to main thread with metadata
-      self.postMessage({ status: 'done', blob, chunkIndex: c + 1, totalChunks: chunks.length, name: chunkName, downloaded: chunk.length - errors, failed: errors }, [blob]);
+      // Send the blob back to main thread with metadata
+      self.postMessage({ status: 'done', blob, chunkIndex: c + 1, totalChunks: chunks.length, name: chunkName, downloaded: chunk.length - errors, failed: errors });
     } catch (e) {
       self.postMessage({ status: 'error', message: String(e), chunkIndex: c + 1 });
     }
