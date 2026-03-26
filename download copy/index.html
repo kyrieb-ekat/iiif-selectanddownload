@@ -474,6 +474,21 @@
             Load Manifest
           </button>
         </div>
+        <div style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">
+          <label for="flaskToken" style="font-weight: 500;">
+            Flask proxy token
+            <span style="font-weight: normal;">(required for Gallica, CNRS, Columbia — paste from Flask console)</span>:
+          </label>
+          <input
+            type="password"
+            id="flaskToken"
+            placeholder="Paste token here"
+            style="margin-top: 4px; display: block; width: 100%; max-width: 420px;
+                   padding: 6px 10px; border: 1px solid var(--border-color);
+                   background: var(--bg-color); color: var(--text-primary);
+                   font-size: 0.85rem; font-family: monospace;"
+          />
+        </div>
       </div>
 
       <!-- Actions Section -->
@@ -620,10 +635,15 @@
     <div id="footer">© 2025 Kyrie Bouressa | IIIF Manifest Viewer</div>
 
     <!-- Scripts -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/he/he.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
+            integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"
+            integrity="sha384-PlRSzpewlarQuj5alIadXwjNUX+2eNMKwr0f07ShWYLy8B6TjEbm7ZlcN/ScSbwy"
+            crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/he@1.2.0/he.js"
+            integrity="sha384-47kOD3Gbs3es8aLiF+9cBkKSCHRQJDFiLUM/ph0Tn0mCnrDWrLmYguIKORFQWGE8"
+            crossorigin="anonymous"></script>
     <script src="main.js"></script>
     
   </body>

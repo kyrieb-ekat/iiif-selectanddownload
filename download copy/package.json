@@ -1,0 +1,14 @@
+{
+  "name": "iiif-viewer",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "esbuild download-worker-src.js --bundle --outfile=download-worker.js --platform=browser --minify"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}

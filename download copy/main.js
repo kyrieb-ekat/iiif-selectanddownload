@@ -51,6 +51,21 @@ function extractLabelText(label, fallback = "Untitled") {
   try { return String(label); } catch { return fallback; }
 }
 
+// ─── Flask Token ──────────────────────────────────────────────────────────────
+
+function getFlaskToken() {
+  // Read from the token input, falling back to a ?token= URL param on page load.
+  const inputVal = document.getElementById('flaskToken')?.value.trim();
+  if (inputVal) return inputVal;
+  return new URLSearchParams(window.location.search).get('token') || '';
+}
+
+function flaskUrl(path, params) {
+  const token = getFlaskToken();
+  const qs = new URLSearchParams({ ...params, ...(token ? { token } : {}) });
+  return `http://localhost:5000${path}?${qs}`;
+}
+
 // ─── Proxy URL Builder ────────────────────────────────────────────────────────
 
 function buildProxyUrl(iiifBase) {
@@ -59,16 +74,20 @@ function buildProxyUrl(iiifBase) {
   if (iiifBase.includes("dlc.library.columbia.edu")) {
     const m = iiifBase.match(/dlc\.library\.columbia\.edu\/iiif\/\d+\/([^\/]+)\/.*?(\d+)/);
     if (m) {
-      return `http://localhost:5000/columbia?id=${encodeURIComponent(decodeURIComponent(m[1]))}&canvas=${m[2]}&size=full`;
+      return flaskUrl('/columbia', {
+        id: decodeURIComponent(m[1]),
+        canvas: m[2],
+        size: 'full',
+      });
     }
-    return `http://localhost:5000/proxy?url=${encodeURIComponent(iiifBase + '/full/max/0/default.jpg')}`;
+    return flaskUrl('/proxy', { url: iiifBase + '/full/max/0/default.jpg' });
   }
 
   // ARK-based sources (Gallica, CNRS)
   const ark = iiifBase.match(/ark:\/([^/]+\/[^/]+)/);
   const folio = iiifBase.match(/\/f(\d+)/);
   if (ark && folio) {
-    return `http://localhost:5000/download?ark=${encodeURIComponent(ark[1])}&f=${folio[1]}&size=full`;
+    return flaskUrl('/download', { ark: ark[1], f: folio[1], size: 'full' });
   }
 
   return null;
@@ -145,15 +164,15 @@ function buildUrlsToTry(img, index) {
     console.log(`Image ${index}: Columbia URL`);
     const m = url.match(/(?:triclops|dlc)\.library\.columbia\.edu\/(?:iiif\/\d+\/)?([^\/]+)\/.*?(\d+)/);
     if (m) {
-      const id = encodeURIComponent(decodeURIComponent(m[1]));
+      const id = decodeURIComponent(m[1]);
       const canvas = m[2];
       ['full', '2000', '1500', '1000'].forEach(size =>
-        urlsToTry.push(`http://localhost:5000/columbia?id=${id}&canvas=${canvas}&size=${size}`)
+        urlsToTry.push(flaskUrl('/columbia', { id, canvas, size }))
       );
     }
     ['max', '2000,', '1500,', '1200,', '800,'].forEach(size =>
       urlsToTry.push(
-        `http://localhost:5000/proxy?url=${encodeURIComponent(url.replace(/\/full\/[^\/]+\//, `/full/${size}/`))}`
+        flaskUrl('/proxy', { url: url.replace(/\/full\/[^\/]+\//, `/full/${size}/`) })
       )
     );
     urlsToTry.push(url); // direct last — likely CORS-blocked but worth trying
@@ -190,7 +209,7 @@ function buildUrlsToTry(img, index) {
     const page = baseUrl.match(/\/f(\d+)/);
     if (ark && page) {
       // Proxy goes to front of the list for Gallica
-      urlsToTry.unshift(`http://localhost:5000/download?ark=${encodeURIComponent(ark[1])}&f=${page[1]}&size=full`);
+      urlsToTry.unshift(flaskUrl('/download', { ark: ark[1], f: page[1], size: 'full' }));
     }
     urlsToTry.push(
       `${baseUrl}/full/full/0/native.jpg`,
@@ -212,7 +231,7 @@ function buildUrlsToTry(img, index) {
 
   // ── Other IIIF base URL ──
   else if (url.includes("/iiif/")) {
-    urlsToTry.push(`http://localhost:5000/proxy?url=${encodeURIComponent(url)}`);
+    urlsToTry.push(flaskUrl('/proxy', { url }));
   }
 
   const unique = [...new Set(urlsToTry)];
@@ -420,14 +439,36 @@ function buildImageCard(imgIndex, thumbnailUrl, downloadUrl, infoUrl, imageLabel
   labelText.style.cssText = "font-weight:bold; margin-bottom:5px; color:var(--text-primary); font-size:1.1rem;";
 
   const urlLink = document.createElement("p");
-  urlLink.innerHTML = `<strong>Download URL:</strong> <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer">${downloadUrl.substring(0, 40)}...</a>`;
   urlLink.style.cssText = "font-size:0.9rem; color:var(--text-secondary); margin-bottom:3px;";
+  const urlStrong = document.createElement("strong");
+  urlStrong.textContent = "Download URL: ";
+  urlLink.appendChild(urlStrong);
+  if (downloadUrl && /^https?:\/\//.test(downloadUrl)) {
+    const urlAnchor = document.createElement("a");
+    urlAnchor.href = downloadUrl;
+    urlAnchor.textContent = downloadUrl.substring(0, 40) + "...";
+    urlAnchor.target = "_blank";
+    urlAnchor.rel = "noopener noreferrer";
+    urlLink.appendChild(urlAnchor);
+  } else {
+    urlLink.appendChild(document.createTextNode(downloadUrl ? downloadUrl.substring(0, 40) + "..." : "N/A"));
+  }
 
   const infoLink = document.createElement("p");
-  infoLink.innerHTML = infoUrl
-    ? `<strong>Info JSON:</strong> <a href="${infoUrl}" target="_blank" rel="noopener noreferrer">View info.json</a>`
-    : "Info JSON: N/A";
   infoLink.style.cssText = "font-size:0.9rem; color:var(--text-secondary); margin-bottom:10px;";
+  const infoStrong = document.createElement("strong");
+  infoStrong.textContent = "Info JSON: ";
+  infoLink.appendChild(infoStrong);
+  if (infoUrl && /^https?:\/\//.test(infoUrl)) {
+    const infoAnchor = document.createElement("a");
+    infoAnchor.href = infoUrl;
+    infoAnchor.textContent = "View info.json";
+    infoAnchor.target = "_blank";
+    infoAnchor.rel = "noopener noreferrer";
+    infoLink.appendChild(infoAnchor);
+  } else {
+    infoLink.appendChild(document.createTextNode("N/A"));
+  }
 
   container.append(selectRow, labelWrapper, labelText, urlLink, infoLink);
   return container;
@@ -579,6 +620,13 @@ function sleep(ms) {
 // ─── Event Listeners ──────────────────────────────────────────────────────────
 
 document.addEventListener("DOMContentLoaded", function () {
+  // Pre-fill token from ?token= URL param so users can bookmark a URL with it
+  const urlToken = new URLSearchParams(window.location.search).get('token');
+  if (urlToken) {
+    const tokenInput = document.getElementById('flaskToken');
+    if (tokenInput) tokenInput.value = urlToken;
+  }
+
   document.getElementById("loadManifest").addEventListener("click", getManifest);
   document.getElementById("selectAll").addEventListener("click", selectAll);
   document.getElementById("downloadSelected").addEventListener("click", downloadSelected);
