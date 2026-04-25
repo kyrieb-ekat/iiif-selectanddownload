@@ -587,25 +587,6 @@ async function downloadSelected() {
   });
 }
 
-// ─── Fetch & Binary Helpers ───────────────────────────────────────────────────
-
-function fetchBinary(url) {
-  return fetch(url, { mode: 'cors' }).then(resp => {
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    return resp.arrayBuffer();
-  });
-}
-
-function processBinaryData(data) {
-  if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  if (typeof data === "string") {
-    const out = new Uint8Array(data.length);
-    for (let i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
-    return out;
-  }
-  return data;
-}
-
 // ─── Progress UI ──────────────────────────────────────────────────────────────
 
 function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0, fromCache = 0) {
@@ -642,10 +623,6 @@ function showDetailedProgress(completed, total, currentAction, startTime = null,
     ${fromCache > 0 ? `<div style="color:var(--success-color); font-size:12px;">⚡ ${fromCache} loaded from cache</div>` : ''}
     ${failed > 0 ? `<div style="color:var(--warning-color); font-size:12px;">⚠️ ${failed} image(s) failed</div>` : ''}
   `;
-}
-
-function updateDetailedProgress(completed, total, currentAction, startTime, failed = 0) {
-  showDetailedProgress(completed, total, currentAction, startTime, failed);
 }
 
 function formatTime(seconds) {

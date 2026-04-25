@@ -557,27 +557,6 @@
 
       <!-- Actions Section -->
       <div class="actions-section">
-        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
-          <label for="iiifVersion" style="font-weight: bold; color: var(--text-primary)">
-            IIIF Version:
-          </label>
-          <select
-            id="iiifVersion"
-            style="
-              padding: 8px 12px;
-              border-radius: var(--radius-sm);
-              border: 1px solid var(--border-color);
-              background: var(--bg-secondary);
-              color: var(--text-primary);
-              font-family: inherit;
-            "
-          >
-            <option value="auto">Auto-Detect</option>
-            <option value="p3">Presentation 3.0</option>
-            <option value="p2">Presentation 2.x</option>
-          </select>
-        </div>
-
         <div class="actions-grid">
           <button id="selectAll" class="btn btn-secondary">
             Select/Deselect All
@@ -595,13 +574,6 @@
             Clear download cache
           </button>
         </div>
-        <div id="gallicaContainer" style="display: none; margin: 10px 0;">
-          <label>
-            <input type="checkbox" id="gallicaCheckbox">
-            Enable rate limiting for Gallica (15s delay between downloads)
-          </label>
-        </div>
-
         <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
           <label for="outputFormat" style="font-weight: bold; color: var(--text-primary);">Download format:</label>
           <select
@@ -632,7 +604,7 @@
         >
           <h3
             style="
-              font-family: 'Cinzel', serif;
+              font-family: inherit;
               color: var(--primary-color);
               margin-bottom: 12px;
               font-size: 1.1rem;
@@ -667,7 +639,7 @@
                 border: 1px solid var(--border-color);
                 background: var(--card-color);
                 color: var(--text-primary);
-                font-family: 'Crimson Text', serif;
+                font-family: inherit;
               "
             />
             <span style="color: var(--text-secondary); font-size: 0.9rem">
@@ -728,9 +700,6 @@
     <div id="footer">© 2025 Kyrie Bouressa | IIIF Manifest Viewer</div>
 
     <!-- Scripts -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"
-            integrity="sha384-vtXRMe3mGCbOeY7l30aIg8H9p3GdeSe4IFlP6G8JMa7o7lXvnz3GFKzPxzJdPfGK"
-            crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"
             integrity="sha384-PlRSzpewlarQuj5alIadXwjNUX+2eNMKwr0f07ShWYLy8B6TjEbm7ZlcN/ScSbwy"
             crossorigin="anonymous"></script>
