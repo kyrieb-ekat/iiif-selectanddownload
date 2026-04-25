@@ -100,30 +100,30 @@ function buildProxyUrl(iiifBase) {
 
 // ─── URL Variant Generators ───────────────────────────────────────────────────
 
-function iiifVariants(baseUrl) {
+function iiifVariants(baseUrl, format = 'jpg') {
   const sizes   = ['max', 'full', '1200,', '800,', '600,', '400,', ',1200', ',800'];
   const quality = ['default', 'native', 'color'];
   const urls = [];
   for (const size of sizes) {
     for (const q of quality) {
-      urls.push(`${baseUrl}/full/${size}/0/${q}.jpg`);
+      urls.push(`${baseUrl}/full/${size}/0/${q}.${format}`);
     }
   }
   // Legacy IIIF 1.0 and no-rotation variants
   urls.push(
-    `${baseUrl}/full/full/default.jpg`,
-    `${baseUrl}/full/max/default.jpg`,
-    `${baseUrl}/full/0/native.jpg`,
-    `${baseUrl}/full/native.jpg`,
-    `${baseUrl}/full/default.jpg`,
+    `${baseUrl}/full/full/default.${format}`,
+    `${baseUrl}/full/max/default.${format}`,
+    `${baseUrl}/full/0/native.${format}`,
+    `${baseUrl}/full/native.${format}`,
+    `${baseUrl}/full/default.${format}`,
     baseUrl,
-    `${baseUrl}.jpg`
+    `${baseUrl}.${format}`
   );
   return urls;
 }
 
-function vaticanVariants(baseUrl, originalUrl) {
-  const base = iiifVariants(baseUrl);
+function vaticanVariants(baseUrl, originalUrl, format = 'jpg') {
+  const base = iiifVariants(baseUrl, format);
 
   // Alternative path structures used by Vatican/Montecassino systems
   const pathAlts = [
@@ -133,8 +133,8 @@ function vaticanVariants(baseUrl, originalUrl) {
   ].filter(p => p !== baseUrl);
 
   const altUrls = pathAlts.flatMap(p => [
-    `${p}/full/full/0/default.jpg`,
-    `${p}/full/max/0/default.jpg`,
+    `${p}/full/full/0/default.${format}`,
+    `${p}/full/max/0/default.${format}`,
   ]);
 
   // URL-encoding fixes sometimes needed for Vatican systems
@@ -142,8 +142,8 @@ function vaticanVariants(baseUrl, originalUrl) {
   const decodedBase = decoded.includes('/full/') ? decoded.split('/full/')[0] : decoded;
   const decodeAlts = decodedBase !== baseUrl ? [
     decoded,
-    `${decodedBase}/full/full/0/default.jpg`,
-    `${decodedBase}/full/max/0/default.jpg`,
+    `${decodedBase}/full/full/0/default.${format}`,
+    `${decodedBase}/full/max/0/default.${format}`,
   ] : [];
 
   return [...base, ...altUrls, ...decodeAlts];
@@ -151,7 +151,7 @@ function vaticanVariants(baseUrl, originalUrl) {
 
 // ─── Main URL-to-Try Builder ──────────────────────────────────────────────────
 
-function buildUrlsToTry(img, index) {
+function buildUrlsToTry(img, index, format = 'jpg') {
   const urlsToTry = [];
 
   if (!img?.url) {
@@ -159,10 +159,11 @@ function buildUrlsToTry(img, index) {
     return urlsToTry;
   }
 
-  // Proxy always goes first when available
-  if (img.proxy) urlsToTry.push(img.proxy);
+  // Flask proxy endpoints only serve JPEG; skip them for other formats
+  if (format === 'jpg' && img.proxy) urlsToTry.push(img.proxy);
 
-  const url = img.url;
+  // Rewrite primary URL's format suffix when not JPEG
+  const url = format === 'jpg' ? img.url : img.url.replace(/\.jpg$/i, `.${format}`);
 
   // ── Columbia (triclops or dlc) ──
   if (url.includes("triclops.library.columbia.edu") || url.includes("dlc.library.columbia.edu")) {
@@ -171,9 +172,12 @@ function buildUrlsToTry(img, index) {
     if (m) {
       const id = decodeURIComponent(m[1]);
       const canvas = m[2];
-      ['full', '2000', '1500', '1000'].forEach(size =>
-        urlsToTry.push(flaskUrl('/columbia', { id, canvas, size }))
-      );
+      // /columbia endpoint only serves JPEG; skip for other formats
+      if (format === 'jpg') {
+        ['full', '2000', '1500', '1000'].forEach(size =>
+          urlsToTry.push(flaskUrl('/columbia', { id, canvas, size }))
+        );
+      }
     }
     ['max', '2000,', '1500,', '1200,', '800,'].forEach(size =>
       urlsToTry.push(
@@ -192,9 +196,9 @@ function buildUrlsToTry(img, index) {
       url.includes("vatlib") || url.includes("digi.vatlib") || url.includes("vatican")) {
     console.log(`Image ${index}: Montecassino/Vatican URL`);
     const baseUrl = url.includes("/full/") ? url.split("/full/")[0] : url;
-    urlsToTry.push(...vaticanVariants(baseUrl, url));
+    urlsToTry.push(...vaticanVariants(baseUrl, url, format));
     if (!url.includes("/full/")) {
-      urlsToTry.push(...['full', 'max', '1200,', '800,'].map(s => `${url}/full/${s}/0/default.jpg`));
+      urlsToTry.push(...['full', 'max', '1200,', '800,'].map(s => `${url}/full/${s}/0/default.${format}`));
     }
   }
 
@@ -202,8 +206,11 @@ function buildUrlsToTry(img, index) {
   else if (url.includes("iiif.irht.cnrs.fr")) {
     console.log(`Image ${index}: CNRS URL`);
     const baseUrl = url.includes("/full/") ? url.split("/full/")[0] : url;
-    urlsToTry.push(...iiifVariants(baseUrl));
-    urlsToTry.push(`${baseUrl}/full/full/0/default.png`, `${baseUrl}/full/max/0/default.png`);
+    urlsToTry.push(...iiifVariants(baseUrl, format));
+    // PNG fallback only makes sense for JPEG mode
+    if (format === 'jpg') {
+      urlsToTry.push(`${baseUrl}/full/full/0/default.png`, `${baseUrl}/full/max/0/default.png`);
+    }
   }
 
   // ── Gallica ──
@@ -212,15 +219,15 @@ function buildUrlsToTry(img, index) {
     const baseUrl = url.split("/full/")[0];
     const ark = baseUrl.match(/ark:\/([^/]+\/[^/]+)/);
     const page = baseUrl.match(/\/f(\d+)/);
-    if (ark && page) {
-      // Proxy goes to front of the list for Gallica
+    // /download endpoint only serves JPEG; skip for other formats
+    if (format === 'jpg' && ark && page) {
       urlsToTry.unshift(flaskUrl('/download', { ark: ark[1], f: page[1], size: 'full' }));
     }
     urlsToTry.push(
-      `${baseUrl}/full/full/0/native.jpg`,
-      `${baseUrl}/full/full/0/default.jpg`,
-      `${baseUrl}/full/max/0/native.jpg`,
-      `${baseUrl}/full/max/0/default.jpg`
+      `${baseUrl}/full/full/0/native.${format}`,
+      `${baseUrl}/full/full/0/default.${format}`,
+      `${baseUrl}/full/max/0/native.${format}`,
+      `${baseUrl}/full/max/0/default.${format}`
     );
   }
 
@@ -229,7 +236,7 @@ function buildUrlsToTry(img, index) {
     console.log(`Image ${index}: generic IIIF URL`);
     const baseUrl = url.split("/full/")[0];
     urlsToTry.push(...['max', 'full', '2000,', '1500,', '1000,', '800,'].map(
-      s => `${baseUrl}/full/${s}/0/default.jpg`
+      s => `${baseUrl}/full/${s}/0/default.${format}`
     ));
     urlsToTry.push(baseUrl);
   }
@@ -238,9 +245,11 @@ function buildUrlsToTry(img, index) {
   else if (url.includes("/iiif/")) {
     const cleanBase = url.replace(/\/$/, '');
     urlsToTry.push(...['max', 'full', '2000,', '1500,', '1000,', '800,'].map(
-      s => `${cleanBase}/full/${s}/0/default.jpg`
+      s => `${cleanBase}/full/${s}/0/default.${format}`
     ));
-    urlsToTry.push(flaskUrl('/proxy', { url: `${cleanBase}/full/max/0/default.jpg` }));
+    if (format === 'jpg') {
+      urlsToTry.push(flaskUrl('/proxy', { url: `${cleanBase}/full/max/0/default.jpg` }));
+    }
   }
 
   const unique = [...new Set(urlsToTry)];
@@ -497,13 +506,14 @@ async function downloadSelected() {
     return;
   }
 
-  const chunkSize   = parseInt(document.getElementById("chunkSize")?.value) || 50;
-  const shouldChunk = selectedImages.length > chunkSize;
+  const chunkSize    = parseInt(document.getElementById("chunkSize")?.value) || 50;
+  const shouldChunk  = selectedImages.length > chunkSize;
+  const outputFormat = document.getElementById('outputFormat')?.value || 'jpg';
 
   const imagesForWorker = selectedImages.map((img, idx) => ({
-    label: img.label,
-    filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.jpg',
-    urls: buildUrlsToTry(img, idx),
+    label:    img.label,
+    filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.' + outputFormat,
+    urls:     buildUrlsToTry(img, idx, outputFormat),
   }));
 
   initDownloadWorkerIfNeeded();

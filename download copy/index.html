@@ -524,12 +524,30 @@
         </div>
         <div id="gallicaContainer" style="display: none; margin: 10px 0;">
           <label>
-            <input type="checkbox" id="gallicaCheckbox"> 
+            <input type="checkbox" id="gallicaCheckbox">
             Enable rate limiting for Gallica (15s delay between downloads)
           </label>
         </div>
 
-        <!-- NEW: Chunking Controls -->
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <label for="outputFormat" style="font-weight: bold; color: var(--text-primary);">Download format:</label>
+          <select
+            id="outputFormat"
+            style="
+              padding: 6px 10px;
+              border-radius: var(--radius-sm);
+              border: 1px solid var(--border-color);
+              background: var(--bg-secondary);
+              color: var(--text-primary);
+              font-family: inherit;
+            "
+          >
+            <option value="jpg">JPEG (universal)</option>
+            <option value="tif">TIFF (where server supports it)</option>
+          </select>
+        </div>
+
+        <!-- Chunking Controls -->
         <div
           style="
             margin-top: 20px;
