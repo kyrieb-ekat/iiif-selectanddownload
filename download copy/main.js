@@ -20,6 +20,7 @@ function initDownloadWorkerIfNeeded() {
     if (data.status === 'progress') {
       const { completed = 0, total = 0, failed = 0, fromCache = 0, current = '', chunkIndex, totalChunks } = data;
       const label = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
+      document.querySelector('.progress-bar--indeterminate')?.classList.remove('progress-bar--indeterminate');
       showDetailedProgress(completed, total, label, workerStartTime, failed, fromCache);
       updateProgress((completed / total) * 100);
 
@@ -290,7 +291,13 @@ async function getManifest() {
   const url = document.getElementById("url").value;
   if (!url) { showMessage("Please enter a manifest URL."); return; }
 
-  showMessage("Loading manifest...");
+  const btn       = document.getElementById("loadManifest");
+  const container = document.getElementById("img-container");
+
+  btn.disabled    = true;
+  btn.textContent = "Loading…";
+  container.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Fetching manifest…</p></div>';
+  images = [];
 
   let manifest;
   try {
@@ -301,13 +308,13 @@ async function getManifest() {
     }
     manifest = await response.json();
   } catch (err) {
+    container.innerHTML = "";
     showMessage(`Error loading manifest: ${err.message}`);
     console.error("Error loading manifest:", err);
+    btn.disabled    = false;
+    btn.textContent = "Load Manifest";
     return;
   }
-
-  document.getElementById("img-container").innerHTML = "";
-  images = [];
 
   // ── Detect IIIF version and extract canvases ──
   let canvases = [];
@@ -321,17 +328,11 @@ async function getManifest() {
   }
 
   if (canvases.length === 0) {
+    container.innerHTML = "";
     showMessage("Error: No canvases found in manifest, or unrecognized IIIF structure.");
+    btn.disabled    = false;
+    btn.textContent = "Load Manifest";
     return;
-  }
-
-  // ── Show/hide Gallica rate-limit checkbox ──
-  const isGallicaManifest = url.includes("gallica.bnf.fr") ||
-    canvases.some(c => JSON.stringify(c).includes("gallica.bnf.fr"));
-  const gallicaContainer = document.getElementById("gallicaContainer");
-  if (gallicaContainer) {
-    gallicaContainer.style.display = isGallicaManifest ? "block" : "none";
-    if (!isGallicaManifest) document.getElementById("gallicaCheckbox").checked = false;
   }
 
   // ── Show/hide chunking options ──
@@ -340,29 +341,45 @@ async function getManifest() {
     chunkContainer.style.display = canvases.length > 50 ? "block" : "none";
   }
 
-  // ── Process each canvas ──
-  canvases.forEach((canvas, index) => {
+  // ── Process canvases, yielding to the browser every 10 to keep UI responsive ──
+  container.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Building image list… 0/' + canvases.length + '</p></div>';
+  const fragment = document.createDocumentFragment();
+
+  for (let index = 0; index < canvases.length; index++) {
+    if (index % 10 === 0 && index > 0) {
+      const statusEl = container.querySelector(".loading-state p");
+      if (statusEl) statusEl.textContent = `Building image list… ${index}/${canvases.length}`;
+      container.appendChild(fragment.cloneNode(true));
+      while (fragment.firstChild) fragment.removeChild(fragment.firstChild);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    const canvas = canvases[index];
     const { thumbnailUrl, fullImageUrlBase } = extractCanvasImageUrls(canvas, index, isIIIFP3);
 
     if (!thumbnailUrl) {
       console.warn(`Canvas ${index}: could not determine image URL, skipping`);
-      return;
+      continue;
     }
 
-    const downloadUrl  = resolveDownloadUrl(fullImageUrlBase);
-    const isIIIFSvc    = fullImageUrlBase &&
+    const downloadUrl = resolveDownloadUrl(fullImageUrlBase);
+    const isIIIFSvc  = fullImageUrlBase &&
       (fullImageUrlBase.includes("/iiif/image/") || /\/images\/.+\/?$/.test(fullImageUrlBase));
-    const infoUrl      = isIIIFSvc ? `${fullImageUrlBase}/info.json` : null;
-    const proxyUrl     = buildProxyUrl(fullImageUrlBase);
-    const imageLabel   = he.decode(extractLabelText(canvas.label, `Image ${index + 1}`));
+    const infoUrl    = isIIIFSvc ? `${fullImageUrlBase}/info.json` : null;
+    const proxyUrl   = buildProxyUrl(fullImageUrlBase);
+    const imageLabel = he.decode(extractLabelText(canvas.label, `Image ${index + 1}`));
 
     images.push({ url: downloadUrl, proxy: proxyUrl, info: infoUrl, label: imageLabel });
+    fragment.appendChild(buildImageCard(images.length - 1, thumbnailUrl, downloadUrl, infoUrl, imageLabel));
+  }
 
-    document.getElementById("img-container").appendChild(
-      buildImageCard(images.length - 1, thumbnailUrl, downloadUrl, infoUrl, imageLabel)
-    );
-  });
+  // Flush remaining cards and remove the spinner placeholder
+  const spinner = container.querySelector(".loading-state");
+  if (spinner) spinner.remove();
+  container.appendChild(fragment);
 
+  btn.disabled    = false;
+  btn.textContent = "Load Manifest";
   showMessage(`Manifest loaded successfully. ${images.length} images found.`);
 }
 
@@ -557,6 +574,10 @@ async function downloadSelected() {
 
   saveSession(imagesForWorker, { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' });
   setPauseButtonState('pause');
+
+  const pb  = document.getElementById("progress_bar");
+  pb.classList.remove("hide");
+  pb.querySelector(".progress-bar").classList.add("progress-bar--indeterminate");
   showMessage(`Starting download — fetching ${selectedImages.length} image(s)…`);
 
   downloadWorker.postMessage({
