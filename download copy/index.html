@@ -23,6 +23,12 @@
         --error-color: #d1242f;
         --radius: 0px;
         --shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        --surface-color: var(--bg-secondary);
+        --card-color: var(--bg-color);
+        --accent-color: var(--primary-color);
+        --radius-sm: 4px;
+        --radius-md: 6px;
+        --warning-color: #b45309;
       }
 
       body {
@@ -244,11 +250,15 @@
       }
 
       #progress_bar {
+        margin-bottom: 12px;
+      }
+
+      .progress-track {
         background: var(--bg-secondary);
         overflow: hidden;
         height: 20px;
-        margin-bottom: 12px;
         border: 1px solid var(--border-color);
+        border-radius: 4px;
       }
 
       .progress-bar {
@@ -680,7 +690,9 @@
 
       <!-- Progress Section -->
       <div id="progress_bar" class="progress-section hide">
-        <div class="progress-bar" style="width: 0%">0%</div>
+        <div class="progress-track">
+          <div class="progress-bar" style="width: 0%">0%</div>
+        </div>
         <p id="result"></p>
       </div>
 
