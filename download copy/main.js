@@ -1,6 +1,7 @@
 var images = []; // Stores image data for display and download
 var downloadWorker = null;
 var workerStartTime = null;
+var pendingImages   = []; // images remaining after a pause
 
 // ─── Web Worker ───────────────────────────────────────────────────────────────
 
@@ -17,25 +18,51 @@ function initDownloadWorkerIfNeeded() {
   downloadWorker.onmessage = function (ev) {
     const data = ev.data || {};
     if (data.status === 'progress') {
-      const { completed = 0, total = 0, failed = 0, current = '', chunkIndex, totalChunks } = data;
+      const { completed = 0, total = 0, failed = 0, fromCache = 0, current = '', chunkIndex, totalChunks } = data;
       const label = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
-      showDetailedProgress(completed, total, label, workerStartTime, failed);
+      showDetailedProgress(completed, total, label, workerStartTime, failed, fromCache);
       updateProgress((completed / total) * 100);
+
     } else if (data.status === 'done') {
       try {
+        const cacheNote = data.fromCache > 0 ? `, ${data.fromCache} from cache` : '';
         if (data.blob) {
           saveAs(data.blob, data.name || 'selected_images.zip');
-          showMessage(`Downloaded ${data.name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
+          showMessage(`Downloaded ${data.name} (${data.downloaded || 0} files${cacheNote}, ${data.failed || 0} failed)`);
         } else {
           showMessage(`Chunk ${data.chunkIndex} — no images downloaded (${data.failed || 0} failed)`);
+        }
+        if (data.chunkIndex === data.totalChunks) {
+          clearSession();
+          setPauseButtonState('hidden');
         }
       } catch (e) {
         console.error('Error saving blob:', e);
         showMessage('Download complete, but saving failed');
       }
+
+    } else if (data.status === 'paused') {
+      setPauseButtonState('resume');
+      pendingImages = [...(data.remaining || []), ...(data.remainingChunks || [])];
+      updateSessionRemaining(pendingImages);
+
+      if (data.partialBlob && data.partialCount > 0) {
+        saveAs(data.partialBlob, 'partial_download.zip');
+        showMessage(
+          `Paused — saved ${data.partialCount} image(s) to partial_download.zip. ` +
+          `${pendingImages.length} image(s) remaining; click Resume to continue.`
+        );
+      } else {
+        showMessage(`Paused — ${pendingImages.length} image(s) remaining. Click Resume to continue.`);
+      }
+
+    } else if (data.status === 'cache-cleared') {
+      showMessage('Download cache cleared.');
+
     } else if (data.status === 'error') {
       console.error('Worker error:', data.message);
       showMessage('Download worker error: ' + (data.message || 'unknown'));
+      setPauseButtonState('hidden');
     }
   };
 }
@@ -510,10 +537,12 @@ async function downloadSelected() {
   const shouldChunk  = selectedImages.length > chunkSize;
   const outputFormat = document.getElementById('outputFormat')?.value || 'jpg';
 
+  const manifestUrl = document.getElementById('url').value;
   const imagesForWorker = selectedImages.map((img, idx) => ({
     label:    img.label,
     filename: sanitizeFilename(img.label || `image_${idx + 1}`) + '.' + outputFormat,
     urls:     buildUrlsToTry(img, idx, outputFormat),
+    cacheKey: `${manifestUrl}|${sanitizeFilename(img.label || `image_${idx + 1}`)}.${outputFormat}`,
   }));
 
   initDownloadWorkerIfNeeded();
@@ -523,11 +552,16 @@ async function downloadSelected() {
   }
 
   workerStartTime = Date.now();
-  showMessage('Starting download in background worker...');
+  pendingImages   = [];
   resetProgress();
+
+  saveSession(imagesForWorker, { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' });
+  setPauseButtonState('pause');
+  showMessage(`Starting download — fetching ${selectedImages.length} image(s)…`);
+
   downloadWorker.postMessage({
-    cmd: 'download',
-    images: imagesForWorker,
+    cmd:     'download',
+    images:  imagesForWorker,
     options: { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' },
   });
 }
@@ -553,7 +587,7 @@ function processBinaryData(data) {
 
 // ─── Progress UI ──────────────────────────────────────────────────────────────
 
-function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0) {
+function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0, fromCache = 0) {
   let el = document.getElementById("detailed_progress");
   if (!el) {
     el = document.createElement("div");
@@ -584,6 +618,7 @@ function showDetailedProgress(completed, total, currentAction, startTime = null,
     </div>
     ${timeInfo ? `<div style="color:var(--text-secondary); margin-bottom:8px; font-size:12px;">${timeInfo}</div>` : ''}
     <div style="margin-bottom:8px;"><strong>Status:</strong> ${currentAction}</div>
+    ${fromCache > 0 ? `<div style="color:var(--success-color); font-size:12px;">⚡ ${fromCache} loaded from cache</div>` : ''}
     ${failed > 0 ? `<div style="color:var(--warning-color); font-size:12px;">⚠️ ${failed} image(s) failed</div>` : ''}
   `;
 }
@@ -635,8 +670,125 @@ function updateProgress(percent) {
   pb.querySelector(".progress-bar").innerText = Math.round(percent) + "%";
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// ─── Session persistence ──────────────────────────────────────────────────────
+
+const SESSION_KEY = 'iiif-download-session';
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function saveSession(images, options) {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      manifestUrl: document.getElementById('url').value,
+      images,
+      options,
+      timestamp: Date.now(),
+    }));
+  } catch (e) {
+    console.warn('Could not save session:', e);
+  }
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (Date.now() - s.timestamp > SESSION_TTL) { clearSession(); return null; }
+    return s;
+  } catch { return null; }
+}
+
+function updateSessionRemaining(remaining) {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    s.images = remaining;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+  } catch {}
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+}
+
+// ─── Pause / Resume ───────────────────────────────────────────────────────────
+
+function pauseDownload() {
+  if (!downloadWorker) return;
+  downloadWorker.postMessage({ cmd: 'pause' });
+  showMessage('Pausing after current image…');
+}
+
+function resumeDownload() {
+  const imagesToResume = pendingImages.length > 0
+    ? pendingImages
+    : loadSession()?.images;
+
+  if (!imagesToResume || imagesToResume.length === 0) {
+    showMessage('No paused session to resume.');
+    return;
+  }
+
+  const session = loadSession();
+  const options = session?.options || { shouldChunk: false, chunkSize: 50, timeoutMs: 30000, outputName: 'selected_images.zip' };
+
+  initDownloadWorkerIfNeeded();
+  if (!downloadWorker) { showMessage('Download worker unavailable.'); return; }
+
+  workerStartTime = Date.now();
+  pendingImages   = [];
+  resetProgress();
+  setPauseButtonState('pause');
+  showMessage(`Resuming — ${imagesToResume.length} image(s) remaining (cached images will load instantly)…`);
+
+  downloadWorker.postMessage({ cmd: 'download', images: imagesToResume, options });
+}
+
+function setPauseButtonState(state) {
+  const btn = document.getElementById('pauseResumeBtn');
+  if (!btn) return;
+  if (state === 'hidden') {
+    btn.style.display = 'none';
+  } else if (state === 'pause') {
+    btn.style.display = '';
+    btn.textContent   = 'Pause';
+    btn.dataset.state = 'pause';
+  } else if (state === 'resume') {
+    btn.style.display = '';
+    btn.textContent   = 'Resume';
+    btn.dataset.state = 'resume';
+  }
+}
+
+function clearDownloadCache() {
+  initDownloadWorkerIfNeeded();
+  if (downloadWorker) downloadWorker.postMessage({ cmd: 'clear-cache' });
+  clearSession();
+  hideSavedSessionBanner();
+  showMessage('Clearing download cache…');
+}
+
+function showSavedSessionBanner(session) {
+  const banner = document.getElementById('sessionBanner');
+  if (!banner) return;
+  const age   = Math.round((Date.now() - session.timestamp) / 60000);
+  const label = age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+  document.getElementById('sessionBannerText').textContent =
+    `${session.images.length} image(s) from a previous download, saved ${label}. Cached images will load instantly.`;
+  banner.style.display = 'flex';
+}
+
+function hideSavedSessionBanner() {
+  const banner = document.getElementById('sessionBanner');
+  if (banner) banner.style.display = 'none';
+}
+
+function checkForSavedSession() {
+  const session = loadSession();
+  if (session && session.images?.length > 0) {
+    showSavedSessionBanner(session);
+  }
 }
 
 // ─── Event Listeners ──────────────────────────────────────────────────────────
@@ -652,6 +804,28 @@ document.addEventListener("DOMContentLoaded", function () {
   document.getElementById("loadManifest").addEventListener("click", getManifest);
   document.getElementById("selectAll").addEventListener("click", selectAll);
   document.getElementById("downloadSelected").addEventListener("click", downloadSelected);
+
+  const pauseBtn = document.getElementById("pauseResumeBtn");
+  if (pauseBtn) {
+    pauseBtn.addEventListener("click", () => {
+      if (pauseBtn.dataset.state === 'pause') pauseDownload();
+      else resumeDownload();
+    });
+  }
+
+  document.getElementById("resumeSessionBtn")?.addEventListener("click", () => {
+    hideSavedSessionBanner();
+    resumeDownload();
+  });
+
+  document.getElementById("dismissSessionBtn")?.addEventListener("click", () => {
+    hideSavedSessionBanner();
+    clearSession();
+  });
+
+  document.getElementById("clearCacheBtn")?.addEventListener("click", clearDownloadCache);
+
+  checkForSavedSession();
 });
 
 console.log("main.js loaded successfully");
