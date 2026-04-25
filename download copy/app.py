@@ -43,6 +43,7 @@ ALLOWED_PROXY_HOSTS = frozenset({
     "digital.bodleian.ox.ac.uk",
     "iiif.harvardartmuseums.org",
     "iiif.archivelab.org",
+    "iiif.archive.org",
     "ids.lib.harvard.edu",
     "nrs.harvard.edu",
     "iiif.europeana.eu",

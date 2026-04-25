@@ -234,9 +234,13 @@ function buildUrlsToTry(img, index) {
     urlsToTry.push(baseUrl);
   }
 
-  // ── Other IIIF base URL ──
+  // ── Other IIIF base URL (no /full/ in URL — treat as image service base) ──
   else if (url.includes("/iiif/")) {
-    urlsToTry.push(flaskUrl('/proxy', { url }));
+    const cleanBase = url.replace(/\/$/, '');
+    urlsToTry.push(...['max', 'full', '2000,', '1500,', '1000,', '800,'].map(
+      s => `${cleanBase}/full/${s}/0/default.jpg`
+    ));
+    urlsToTry.push(flaskUrl('/proxy', { url: `${cleanBase}/full/max/0/default.jpg` }));
   }
 
   const unique = [...new Set(urlsToTry)];
@@ -397,6 +401,8 @@ function resolveDownloadUrl(base) {
   if (!base) return base;
   const isIIIFBase =
     base.includes("/iiif/image/") ||
+    base.includes("/image/iiif/") ||   // Internet Archive and similar
+    /\/iiif\/[23]\//.test(base) ||     // IIIF Image API v2/v3 base pattern
     /\/images\/.+\/?$/.test(base) ||
     /\/loris\/.+$/.test(base) ||
     base.includes("iiifimage") ||
