@@ -84,19 +84,24 @@ self.addEventListener('message', async (ev) => {
     }
 
     try {
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const chunkName = shouldChunk
+      const downloaded = chunk.length - errors;
+      const chunkName  = shouldChunk
         ? `images_chunk_${String(c + 1).padStart(3, '0')}.zip`
         : (options.outputName || 'selected_images.zip');
-      self.postMessage({
-        status: 'done',
-        blob,
-        chunkIndex: c + 1,
-        totalChunks: chunks.length,
-        name: chunkName,
-        downloaded: chunk.length - errors,
-        failed: errors,
-      });
+      if (downloaded === 0) {
+        self.postMessage({
+          status: 'done', blob: null,
+          chunkIndex: c + 1, totalChunks: chunks.length,
+          name: chunkName, downloaded: 0, failed: errors,
+        });
+      } else {
+        const blob = await zip.generateAsync({ type: 'blob' });
+        self.postMessage({
+          status: 'done', blob,
+          chunkIndex: c + 1, totalChunks: chunks.length,
+          name: chunkName, downloaded, failed: errors,
+        });
+      }
     } catch (e) {
       self.postMessage({ status: 'error', message: String(e), chunkIndex: c + 1 });
     }

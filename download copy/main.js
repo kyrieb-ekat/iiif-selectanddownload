@@ -1,5 +1,6 @@
 var images = []; // Stores image data for display and download
 var downloadWorker = null;
+var workerStartTime = null;
 
 // ─── Web Worker ───────────────────────────────────────────────────────────────
 
@@ -18,12 +19,16 @@ function initDownloadWorkerIfNeeded() {
     if (data.status === 'progress') {
       const { completed = 0, total = 0, failed = 0, current = '', chunkIndex, totalChunks } = data;
       const label = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
-      showDetailedProgress(completed, total, label, Date.now(), failed);
+      showDetailedProgress(completed, total, label, workerStartTime, failed);
       updateProgress((completed / total) * 100);
     } else if (data.status === 'done') {
       try {
-        saveAs(data.blob, data.name || 'selected_images.zip');
-        showMessage(`Downloaded ${data.name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
+        if (data.blob) {
+          saveAs(data.blob, data.name || 'selected_images.zip');
+          showMessage(`Downloaded ${data.name} (${data.downloaded || 0} files, ${data.failed || 0} failed)`);
+        } else {
+          showMessage(`Chunk ${data.chunkIndex} — no images downloaded (${data.failed || 0} failed)`);
+        }
       } catch (e) {
         console.error('Error saving blob:', e);
         showMessage('Download complete, but saving failed');
@@ -486,8 +491,8 @@ async function downloadSelected() {
     return;
   }
 
-  const shouldChunk = document.getElementById("chunkCheckbox")?.checked ?? false;
   const chunkSize   = parseInt(document.getElementById("chunkSize")?.value) || 50;
+  const shouldChunk = selectedImages.length > chunkSize;
 
   const imagesForWorker = selectedImages.map((img, idx) => ({
     label: img.label,
@@ -501,6 +506,7 @@ async function downloadSelected() {
     return;
   }
 
+  workerStartTime = Date.now();
   showMessage('Starting download in background worker...');
   resetProgress();
   downloadWorker.postMessage({
