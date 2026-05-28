@@ -18,10 +18,10 @@ function initDownloadWorkerIfNeeded() {
   downloadWorker.onmessage = function (ev) {
     const data = ev.data || {};
     if (data.status === 'progress') {
-      const { completed = 0, total = 0, failed = 0, fromCache = 0, current = '', chunkIndex, totalChunks } = data;
+      const { completed = 0, total = 0, failed = 0, fromCache = 0, current = '', chunkIndex, totalChunks, failureReasons } = data;
       const label = chunkIndex ? `Chunk ${chunkIndex}/${totalChunks}: ${current}` : current;
       document.querySelector('.progress-bar--indeterminate')?.classList.remove('progress-bar--indeterminate');
-      showDetailedProgress(completed, total, label, workerStartTime, failed, fromCache);
+      showDetailedProgress(completed, total, label, workerStartTime, failed, fromCache, failureReasons);
       updateProgress((completed / total) * 100);
 
     } else if (data.status === 'done') {
@@ -463,6 +463,7 @@ function resolveDownloadUrl(base) {
     base.includes("/image/iiif/") ||   // Internet Archive and similar
     /\/iiif\/[23]\//.test(base) ||     // IIIF Image API v2/v3 base pattern
     /\/images\/.+\/?$/.test(base) ||
+    /\/image\/[^/.]+$/.test(base) ||   // e.g. iiif.hab.de/.../image/image_00001
     /\/loris\/.+$/.test(base) ||
     base.includes("iiifimage") ||
     base.includes("gallica.bnf.fr/iiif") ||
@@ -597,7 +598,7 @@ async function downloadSelected() {
 
 // ─── Progress UI ──────────────────────────────────────────────────────────────
 
-function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0, fromCache = 0) {
+function showDetailedProgress(completed, total, currentAction, startTime = null, failed = 0, fromCache = 0, failureReasons = null) {
   let el = document.getElementById("detailed_progress");
   if (!el) {
     el = document.createElement("div");
@@ -630,6 +631,13 @@ function showDetailedProgress(completed, total, currentAction, startTime = null,
     <div style="margin-bottom:8px;"><strong>Status:</strong> ${currentAction}</div>
     ${fromCache > 0 ? `<div style="color:var(--success-color); font-size:12px;">⚡ ${fromCache} loaded from cache</div>` : ''}
     ${failed > 0 ? `<div style="color:var(--warning-color); font-size:12px;">⚠️ ${failed} image(s) failed</div>` : ''}
+    ${failureReasons?.length ? `
+      <details style="margin-top:6px; font-size:11px; color:var(--error-color);">
+        <summary style="cursor:pointer; user-select:none;">Last failure — ${failureReasons.length} URL(s) tried</summary>
+        <ul style="margin:4px 0 0 14px; padding:0; list-style:disc; line-height:1.6;">
+          ${failureReasons.map(r => `<li>${r}</li>`).join('')}
+        </ul>
+      </details>` : ''}
   `;
 }
 

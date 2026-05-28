@@ -160,8 +160,9 @@ self.addEventListener('message', async (ev) => {
       nameCounts.set(fname, nameCount);
       if (nameCount > 1) fname = fname.replace(/(\.[^.]+)$/, `_${nameCount}$1`);
       const filename = fname;
-      const cacheKey = img.cacheKey || filename;
-      let   success  = false;
+      const cacheKey  = img.cacheKey || filename;
+      let   success   = false;
+      const urlErrors = [];
 
       // ── Cache-first fetch ──
       const cached = await cacheGet(cacheKey);
@@ -178,23 +179,31 @@ self.addEventListener('message', async (ev) => {
               zip.file(filename, buf, { binary: true });
               success = true;
               break;
+            } else if (buf) {
+              urlErrors.push(`${url} → ${buf.byteLength}b (below 5 KB threshold)`);
             }
-          } catch (_) { /* try next URL */ }
+          } catch (e) {
+            urlErrors.push(`${url} → ${e.message}`);
+          }
         }
       }
 
-      if (!success) errors++;
+      if (!success) {
+        errors++;
+        console.warn(`[worker] "${filename}" failed all URLs:`, urlErrors);
+      }
       count++;
 
       self.postMessage({
-        status:      'progress',
-        completed:   count,
-        total:       chunk.length,
-        failed:      errors,
+        status:         'progress',
+        completed:      count,
+        total:          chunk.length,
+        failed:         errors,
         fromCache,
-        current:     filename,
-        chunkIndex:  c + 1,
-        totalChunks: chunks.length,
+        current:        filename,
+        chunkIndex:     c + 1,
+        totalChunks:    chunks.length,
+        failureReasons: success ? null : urlErrors,
       });
     }
 
