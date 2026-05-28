@@ -130,13 +130,15 @@ self.addEventListener('message', async (ev) => {
     const zip   = new JSZip();
     let count = 0, errors = 0, fromCache = 0;
 
+    const nameCounts = new Map();
+
     for (let i = 0; i < chunk.length; i++) {
 
       // ── Pause between images ──
       if (pauseRequested) {
-        const downloaded = count - errors;
+        const downloaded = count - errors; // count === images processed so far (not including i)
         let partialBlob = null;
-        if (downloaded > 0) {
+        if (Object.keys(zip.files).length > 0) {
           try { partialBlob = await zip.generateAsync({ type: 'blob' }); } catch (_) {}
         }
         self.postMessage({
@@ -145,14 +147,19 @@ self.addEventListener('message', async (ev) => {
           partialCount:    downloaded,
           completed:       count,
           failed:          errors,
+          fromCache,
           remaining:       chunk.slice(i),
           remainingChunks: chunks.slice(c + 1).flat(),
         });
         return;
       }
 
-      const img      = chunk[i];
-      const filename = sanitizeFilename(img.filename || img.label || `image_${i + 1}`);
+      const img = chunk[i];
+      let fname = sanitizeFilename(img.filename || img.label || `image_${i + 1}`);
+      const nameCount = (nameCounts.get(fname) || 0) + 1;
+      nameCounts.set(fname, nameCount);
+      if (nameCount > 1) fname = fname.replace(/(\.[^.]+)$/, `_${nameCount}$1`);
+      const filename = fname;
       const cacheKey = img.cacheKey || filename;
       let   success  = false;
 
@@ -193,21 +200,22 @@ self.addEventListener('message', async (ev) => {
 
     try {
       const downloaded = chunk.length - errors;
+      const fileCount  = Object.keys(zip.files).length;
       const chunkName  = shouldChunk
         ? `images_chunk_${String(c + 1).padStart(3, '0')}.zip`
         : (options.outputName || 'selected_images.zip');
-      if (downloaded === 0) {
+      if (fileCount === 0) {
         self.postMessage({
           status: 'done', blob: null,
           chunkIndex: c + 1, totalChunks: chunks.length,
-          name: chunkName, downloaded: 0, failed: errors,
+          name: chunkName, downloaded: 0, failed: errors, fromCache,
         });
       } else {
         const blob = await zip.generateAsync({ type: 'blob' });
         self.postMessage({
           status: 'done', blob,
           chunkIndex: c + 1, totalChunks: chunks.length,
-          name: chunkName, downloaded, failed: errors,
+          name: chunkName, downloaded, failed: errors, fromCache,
         });
       }
     } catch (e) {

@@ -66,6 +66,12 @@ function initDownloadWorkerIfNeeded() {
       setPauseButtonState('hidden');
     }
   };
+
+  downloadWorker.onerror = function (err) {
+    console.error('Download worker crashed:', err);
+    showMessage('Download worker crashed: ' + (err.message || 'unknown error'));
+    setPauseButtonState('hidden');
+  };
 }
 
 // ─── IIIF Label Extraction ────────────────────────────────────────────────────
