@@ -591,6 +591,25 @@
             <option value="tif">TIFF (where server supports it)</option>
           </select>
         </div>
+        <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <label for="outputName" style="font-weight: bold; color: var(--text-primary);">ZIP filename:</label>
+          <input
+            type="text"
+            id="outputName"
+            placeholder="selected_images"
+            maxlength="80"
+            style="
+              padding: 6px 10px;
+              border-radius: var(--radius-sm);
+              border: 1px solid var(--border-color);
+              background: var(--bg-secondary);
+              color: var(--text-primary);
+              font-family: inherit;
+              width: 220px;
+            "
+          />
+          <span style="color: var(--text-secondary); font-size: 0.85rem;">.zip</span>
+        </div>
 
         <!-- Chunking Controls -->
         <div

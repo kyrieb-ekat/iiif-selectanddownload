@@ -201,8 +201,9 @@ self.addEventListener('message', async (ev) => {
     try {
       const downloaded = chunk.length - errors;
       const fileCount  = Object.keys(zip.files).length;
+      const baseName   = (options.outputName || 'selected_images.zip').replace(/\.zip$/i, '');
       const chunkName  = shouldChunk
-        ? `images_chunk_${String(c + 1).padStart(3, '0')}.zip`
+        ? `${baseName}_chunk_${String(c + 1).padStart(3, '0')}.zip`
         : (options.outputName || 'selected_images.zip');
       if (fileCount === 0) {
         self.postMessage({

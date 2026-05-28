@@ -559,6 +559,8 @@ async function downloadSelected() {
   const chunkSize    = parseInt(document.getElementById("chunkSize")?.value) || 50;
   const shouldChunk  = selectedImages.length > chunkSize;
   const outputFormat = document.getElementById('outputFormat')?.value || 'jpg';
+  const rawName      = document.getElementById('outputName')?.value.trim() || '';
+  const outputName   = (sanitizeFilename(rawName) || 'selected_images') + '.zip';
 
   const manifestUrl = document.getElementById('url').value;
   const imagesForWorker = selectedImages.map((img, idx) => ({
@@ -578,7 +580,7 @@ async function downloadSelected() {
   pendingImages   = [];
   resetProgress();
 
-  saveSession(imagesForWorker, { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' });
+  saveSession(imagesForWorker, { shouldChunk, chunkSize, timeoutMs: 30000, outputName });
   setPauseButtonState('pause');
 
   const pb  = document.getElementById("progress_bar");
@@ -589,7 +591,7 @@ async function downloadSelected() {
   downloadWorker.postMessage({
     cmd:     'download',
     images:  imagesForWorker,
-    options: { shouldChunk, chunkSize, timeoutMs: 30000, outputName: 'selected_images.zip' },
+    options: { shouldChunk, chunkSize, timeoutMs: 30000, outputName },
   });
 }
 
